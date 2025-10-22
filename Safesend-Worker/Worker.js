@@ -1,9 +1,8 @@
-// worker.js — SafeSend risk service (Alchemy-only)
+// worker.js — SafeSend risk service (Alchemy-only, multi-chain, OFAC hard block, Scam cluster >=60)
 
 // ---------------- CORS ----------------
 function corsHeaders(origin) {
-  // Echo the caller origin if present, otherwise allow GitHub Pages (your app)
-  const allow = origin || "https://agethejedi.github.io";
+  const allow = origin || "https://agethejedi.github.io"; // adjust if you deploy elsewhere
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -26,11 +25,12 @@ function parseCSVSecret(v){
     .filter(Boolean);
 }
 function severityWeight(sev){
-  switch(sev){
-    case "critical": return 60;
+  switch(String(sev).toLowerCase()){
+    case "critical": return 60; // >=60 alone
     case "high":     return 35;
-    case "med":      return 15;
-    default:         return 5;   // low
+    case "med":
+    case "medium":   return 15;
+    default:         return 5;  // low
   }
 }
 function scoreFromFactors(factors){
@@ -46,10 +46,12 @@ function decisionFromScore(score){
 // ---------------- Alchemy RPC ----------------
 function chainToAlchemyUrl(env, chain){
   const c = (chain || "sepolia").toLowerCase();
-  if (c === "sepolia") return env.ALCHEMY_SEPOLIA_URL;
-  if (c === "mainnet") return env.ALCHEMY_MAINNET_URL;
-  if (c === "polygon") return env.ALCHEMY_POLYGON_URL;
-  // Default to Sepolia if unknown
+  if (c === "sepolia")  return env.ALCHEMY_SEPOLIA_URL;
+  if (c === "mainnet")  return env.ALCHEMY_MAINNET_URL;
+  if (c === "base")     return env.ALCHEMY_BASE_URL;
+  if (c === "polygon")  return env.ALCHEMY_POLYGON_URL;
+  if (c === "optimism") return env.ALCHEMY_OPTIMISM_URL;
+  if (c === "arbitrum") return env.ALCHEMY_ARBITRUM_URL;
   return env.ALCHEMY_SEPOLIA_URL;
 }
 
@@ -71,11 +73,11 @@ async function getCode(url, address) {
   return rpc(url, "eth_getCode", [address, "latest"]);
 }
 
-async function getTransfers(url, address, { limit = 25 } = {}) {
+async function getTransfers(url, address, { limit = 50 } = {}) {
   const base = {
     fromBlock: "0x0",
     toBlock: "latest",
-    category: ["external"], // ETH transfers only (no ERC20/721); expand if you want
+    category: ["external"], // ETH transfers only (extend if desired)
     withMetadata: true,
     excludeZeroValue: false,
     maxCount: "0x" + Math.max(1, Math.min(limit, 100)).toString(16),
@@ -90,7 +92,6 @@ async function getTransfers(url, address, { limit = 25 } = {}) {
   const out = outRes?.transfers || [];
   const inn = inRes?.transfers || [];
 
-  // Normalize: timestamp (ms), value (ETH number), from/to/hash
   const all = [...out, ...inn].map(t => ({
     hash: t.hash,
     from: (t.from || "").toLowerCase(),
@@ -99,7 +100,6 @@ async function getTransfers(url, address, { limit = 25 } = {}) {
     tsMs: t.metadata?.blockTimestamp ? Date.parse(t.metadata.blockTimestamp) : 0,
   }));
 
-  // Sort desc by time and cap
   all.sort((a, b) => b.tsMs - a.tsMs);
   return all.slice(0, limit);
 }
@@ -112,21 +112,37 @@ async function runHeuristics({ address, ens, chain, amountEth, env }) {
 
   if (!alchemyUrl) {
     factors.push({ label: "Config", severity: "high", reason: "Missing Alchemy URL for selected chain" });
-    return { factors };
+    return { factors, score: scoreFromFactors(factors), decision: decisionFromScore(scoreFromFactors(factors)) };
   }
 
-  // 1) Static lists
-  const badlist = parseCSVSecret(env.BADLIST);
-  const badEns  = parseCSVSecret(env.BAD_ENS);
+  // Parse lists from env (CSV/whitespace), lowercase
+  const badlist      = parseCSVSecret(env.BADLIST);
+  const badEns       = parseCSVSecret(env.BAD_ENS);
+  const ofacList     = parseCSVSecret(env.OFAC_SET);
+  const scamClusters = parseCSVSecret(env.SCAM_CLUSTERS);
 
-  if (badlist.includes(lower)) {
+  const inList = (list, v) => v && list.includes(String(v).toLowerCase());
+
+  // 0) OFAC => immediate block (score 100, single critical factor)
+  if (inList(ofacList, lower) || (ens && inList(ofacList, ens))) {
+    const f = [{ label: "OFAC match", severity: "critical", reason: "Address/ENS is on OFAC sanctions list" }];
+    return { factors: f, score: 100, decision: "block" };
+  }
+
+  // 1) Scam cluster => critical factor (>= 60 score by itself)
+  if (inList(scamClusters, lower) || (ens && inList(scamClusters, ens))) {
+    factors.push({ label: "Scam cluster", severity: "critical", reason: "Address/ENS appears in known scam clusters" });
+  }
+
+  // 2) Internal lists
+  if (inList(badlist, lower)) {
     factors.push({ label: "Badlist", severity: "critical", reason: "Address appears on internal blocklist" });
   }
-  if (ens && badEns.includes(String(ens).toLowerCase())) {
+  if (ens && inList(badEns, ens)) {
     factors.push({ label: "ENS", severity: "high", reason: `ENS name flagged (${ens})` });
   }
 
-  // 2) Contract code check (eth_getCode via Alchemy)
+  // 3) Contract code check
   try {
     const code = await getCode(alchemyUrl, address);
     if (typeof code === "string" && code !== "0x") {
@@ -136,7 +152,7 @@ async function runHeuristics({ address, ens, chain, amountEth, env }) {
     factors.push({ label: "RPC", severity: "low", reason: `eth_getCode failed: ${e.message || e}` });
   }
 
-  // 3) Transfers analysis (alchemy_getAssetTransfers)
+  // 4) Transfers analysis (Alchemy)
   let transfers = [];
   try {
     transfers = await getTransfers(alchemyUrl, address, { limit: 50 });
@@ -147,33 +163,28 @@ async function runHeuristics({ address, ens, chain, amountEth, env }) {
   if (transfers.length === 0) {
     factors.push({ label: "Activity", severity: "med", reason: "No on-chain transfer history" });
   } else {
-    // Recency
     const latest = transfers[0];
     const ageMin = (nowMs() - (latest.tsMs || 0)) / 60000;
     if (ageMin < 60) {
       factors.push({ label: "Fresh activity", severity: "low", reason: "Recent transfer in the last hour" });
     }
-
-    // Burst in the last hour
     const in1h = transfers.filter(t => nowMs() - t.tsMs <= 60 * 60 * 1000);
     if (in1h.length >= 10) {
       factors.push({ label: "Bursting", severity: "med", reason: `High activity: ${in1h.length} transfers in last hour` });
     }
-
-    // Dust pattern: many tiny outgoing txs
     const dust = isFinite(Number(env.DUST_THRESHOLD)) ? Number(env.DUST_THRESHOLD) : 0.001; // ETH
     const tinyOut = transfers.filter(t => t.from === lower && t.valueEth > 0 && t.valueEth <= dust).length;
     if (tinyOut >= 5) {
       factors.push({ label: "Dust spam", severity: "med", reason: `Multiple tiny outgoing transfers (${tinyOut})` });
     }
-
-    // If the user is sending a tiny amount and the address tends to do dust, nudge
     if (amountEth && amountEth <= dust) {
       factors.push({ label: "Amount", severity: "low", reason: `Send amount <= dust threshold (${dust} ETH)` });
     }
   }
 
-  return { factors };
+  const score = scoreFromFactors(factors);
+  const decision = decisionFromScore(score);
+  return { factors, score, decision };
 }
 
 // ---------------- Worker entry ----------------
@@ -190,7 +201,7 @@ export default {
 
     // Health
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ ok: true, build: "safesend-alchemy-v1" }), {
+      return new Response(JSON.stringify({ ok: true, build: "safesend-alchemy-v1.5" }), {
         headers: corsHeaders(origin),
       });
     }
@@ -210,18 +221,18 @@ export default {
         }), { headers: corsHeaders(origin) });
       }
 
-      let factors = [];
+      let result = { score: 0, decision: "allow", factors: [] };
       try {
-        const res = await runHeuristics({ address, ens, chain, amountEth: amount, env });
-        factors = res.factors || [];
+        result = await runHeuristics({ address, ens, chain, amountEth: amount, env });
       } catch (e) {
-        factors.push({ label: "Engine", severity: "low", reason: `Heuristics failed: ${e.message || e}` });
+        result = {
+          score: 10,
+          decision: "allow",
+          factors: [{ label: "Engine", severity: "low", reason: `Heuristics failed: ${e.message || e}` }]
+        };
       }
 
-      const score = scoreFromFactors(factors);
-      const decision = decisionFromScore(score);
-
-      return new Response(JSON.stringify({ score, decision, factors }), {
+      return new Response(JSON.stringify(result), {
         headers: corsHeaders(origin),
       });
     }
