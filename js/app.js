@@ -1,5 +1,5 @@
 // =========================================
-/* X-Wallet v1.4 — Control Center + TXs + SafeSend Worker-only risk */
+// X-Wallet v1.5 — Control Center + TXs + SafeSend (Worker-only risk)
 // =========================================
 import { ethers } from "https://esm.sh/ethers@6.13.2";
 
@@ -8,12 +8,12 @@ document.addEventListener("DOMContentLoaded", () => {
 /* ================================
    CONFIG
 ================================ */
-// Alchemy Sepolia (balances, send, history)
+// Alchemy Sepolia (balances, send, history) — keep using what already works for you
 const RPCS = {
   sep: "https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
 };
 
-// SafeSend Worker (risk checks ONLY — no Etherscan)
+// SafeSend Worker (risk checks ONLY — no direct Etherscan calls here)
 const SAFE_SEND_URL = "https://xwalletv1dot2.agedotcom.workers.dev";
 
 /* ================================
@@ -339,11 +339,13 @@ async function loadAddressTxs(address, targetId){
 /* ================================
    SafeSend Worker (ONLY) + modal
 ================================ */
-async function fetchSafeSendWorker(addr){
+async function fetchSafeSendWorker({addr, chain="sepolia", amountEth=0, ens=""}){
   try{
     const u=new URL(SAFE_SEND_URL + "/check");
     u.searchParams.set("address", addr);
-    u.searchParams.set("chain", "sepolia");
+    u.searchParams.set("chain", chain);
+    if (amountEth) u.searchParams.set("amount", String(amountEth));
+    if (ens) u.searchParams.set("ens", ens);
     const r=await fetch(u.toString(), { cache: "no-store" });
     if(!r.ok) throw new Error("safesend_http_" + r.status);
     return await r.json(); // { score, decision, factors }
@@ -354,12 +356,12 @@ async function fetchSafeSendWorker(addr){
 }
 
 function severityClass(s){
-  if(s==="high") return "factor--high";
-  if(s==="medium") return "factor--medium";
+  if(s==="high"||s==="critical") return "factor--high";
+  if(s==="medium"||s==="med")    return "factor--med";
   return "factor--low";
 }
 
-function openRiskModal({score, factors}, onCancel, onProceed){
+function openRiskModal({score, factors, decision}, onCancel, onProceed){
   const modal = document.getElementById("riskModal");
   const bar   = document.getElementById("riskMeterBar");
   const scoreEl = document.getElementById("riskScoreText");
@@ -374,14 +376,17 @@ function openRiskModal({score, factors}, onCancel, onProceed){
   list.innerHTML = "";
   agree.checked = false;
   btnProceed.disabled = true;
-  warn.style.display = (score >= 60) ? "block" : "none";
+
+  const isBlock = decision === "block";
+  const needsAck = !isBlock && (score >= 60);
+  warn.style.display = needsAck ? "block" : "none";
 
   // animate meter 0 -> score
   const target = clamp(Number(score)||0, 0, 100);
   let cur = 0;
   bar.style.setProperty("--score", "0");
   scoreEl.textContent = `Risk score: ${cur}`;
-  modal.classList.add("active"); // <-- FIX: use .active to match CSS
+  modal.classList.add("active");
 
   const step = () => {
     cur = Math.min(cur + 2, target);
@@ -391,7 +396,7 @@ function openRiskModal({score, factors}, onCancel, onProceed){
   };
   requestAnimationFrame(step);
 
-  // render factors from Worker ONLY
+  // render factors
   (factors || []).forEach(f=>{
     const row = document.createElement("div");
     row.className = `factor ${severityClass(f.severity)}`;
@@ -402,17 +407,23 @@ function openRiskModal({score, factors}, onCancel, onProceed){
   // wire buttons
   const off = () => {
     btnCancel.onclick = btnProceed.onclick = btnClose.onclick = agree.onchange = null;
-    modal.classList.remove("active"); // <-- FIX: remove .active
+    modal.classList.remove("active");
   };
 
   btnCancel.onclick = ()=>{ off(); onCancel?.(); };
   btnClose.onclick  = ()=>{ off(); onCancel?.(); };
 
-  if (score >= 60) {
+  if (isBlock) {
+    btnProceed.disabled = true;
+    btnProceed.textContent = "Blocked";
+    btnProceed.title = "This destination is blocked (e.g., OFAC).";
+  } else if (needsAck) {
+    btnProceed.textContent = "Complete transaction";
     agree.onchange = ()=>{ btnProceed.disabled = !agree.checked; };
     btnProceed.onclick = ()=>{ if(agree.checked){ off(); onProceed?.(); } };
   } else {
     btnProceed.disabled = false;
+    btnProceed.textContent = "Complete transaction";
     btnProceed.onclick = ()=>{ off(); onProceed?.(); };
   }
 }
@@ -431,11 +442,11 @@ async function sendEthFlow(){
   $("#sendOut").textContent="Checking SafeSend…";
 
   // 1) Get risk from Worker (ONLY)
-  const risk = await fetchSafeSendWorker(to);
+  const risk = await fetchSafeSendWorker({ addr: to, chain: "sepolia", amountEth: n });
 
   // 2) Always show modal
   openRiskModal(
-    { score: risk.score ?? 0, factors: risk.factors ?? [] },
+    { score: risk.score ?? 0, factors: risk.factors ?? [], decision: risk.decision ?? "allow" },
     () => { $("#sendOut").textContent="Cancelled."; }, // cancel
     async () => { // proceed
       $("#sendOut").textContent = `SafeSend OK (${risk.score}). Sending…`;
