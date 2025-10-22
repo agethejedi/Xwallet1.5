@@ -1,19 +1,24 @@
 // =========================================
-// X-Wallet v1.5 — Control Center + TXs + SafeSend (Worker-only risk)
+// X-Wallet v1.5 — v1.4 UI + Multi-network + SafeSend Worker + Alchemy history
 // =========================================
 import { ethers } from "https://esm.sh/ethers@6.13.2";
 
 document.addEventListener("DOMContentLoaded", () => {
 
 /* ================================
-   CONFIG
+   CONFIG (multi-network)
 ================================ */
-// Alchemy Sepolia (balances, send, history) — keep using what already works for you
+// Fill in YOUR Alchemy URLs (you can reuse the same project key if multi-chain)
 const RPCS = {
-  sep: "https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  ethereum: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  base:     "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  polygon:  "https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  arbitrum: "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  optimism: "https://opt-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  sepolia:  "https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY" // your existing key works here
 };
 
-// SafeSend Worker (risk checks ONLY — no direct Etherscan calls here)
+// SafeSend Worker (risk checks)
 const SAFE_SEND_URL = "https://xwalletv1dot2.agedotcom.workers.dev";
 
 /* ================================
@@ -49,6 +54,8 @@ async function aesDecrypt(password, payload){
 ================================ */
 const STORAGE_KEY_VAULT = "xwallet_vault_v13";
 const STORAGE_KEY_ACCTS = "xwallet_accounts_n";
+const STORAGE_KEY_NET   = "xwallet_network";
+
 const state = {
   unlocked:false,
   provider:null,
@@ -56,6 +63,21 @@ const state = {
   accounts:[], // [{ index, wallet, address }]
   signerIndex:0
 };
+
+// network selection + persistence
+let currentNetwork = localStorage.getItem(STORAGE_KEY_NET) || "sepolia";
+const netSel = $("#networkSelect");
+if (netSel) {
+  netSel.value = currentNetwork;
+  netSel.addEventListener("change", (e) => {
+    currentNetwork = e.target.value;
+    localStorage.setItem(STORAGE_KEY_NET, currentNetwork);
+    if (state.unlocked) {
+      state.provider = new ethers.JsonRpcProvider(RPCS[currentNetwork]);
+    }
+  });
+}
+
 const getVault = () => (localStorage.getItem(STORAGE_KEY_VAULT) ? JSON.parse(localStorage.getItem(STORAGE_KEY_VAULT)) : null);
 const setVault = (v) => localStorage.setItem(STORAGE_KEY_VAULT, JSON.stringify(v));
 const getAccountCount = () => {
@@ -90,7 +112,7 @@ function loadAccountsFromPhrase(phrase){
 }
 
 /* ================================
-   Alchemy transfers (history)
+   Alchemy transfers (history) — chain-agnostic
 ================================ */
 async function getTxsAlchemy(address, { limit = 10 } = {}) {
   if (!state.provider) throw new Error("Provider not ready");
@@ -179,7 +201,7 @@ const VIEWS={
       Wallet #${a.index+1} — ${a.address.slice(0,6)}…${a.address.slice(-4)}</option>`).join("")||"<option disabled>No wallets</option>";
 
     return `
-      <div class="label">Send ETH (Sepolia)</div>
+      <div class="label">Send (Network: <span class="mono">${currentNetwork}</span>)</div>
       <div class="send-form">
         <select id="fromAccount">${acctOpts}</select>
         <input id="sendTo" placeholder="Recipient 0x address"/>
@@ -277,7 +299,7 @@ $("#doUnlock")?.addEventListener("click",async()=>{
     state.decryptedPhrase=phrase;
     if(!getAccountCount()) setAccountCount(1);
     loadAccountsFromPhrase(phrase);
-    state.provider=new ethers.JsonRpcProvider(RPCS.sep);
+    state.provider=new ethers.JsonRpcProvider(RPCS[currentNetwork]);
     state.unlocked=true;
     const ls=document.getElementById("lockState"); if(ls) ls.textContent="Unlocked";
     hideLock(); scheduleAutoLock(); selectItem("dashboard");
@@ -312,7 +334,7 @@ async function loadRecentTxs(){
     el.innerHTML=txs.map(t=>{
       const when=t.timestamp?new Date(t.timestamp).toLocaleString():"";
       return `<div>
-        <a target=_blank href="https://sepolia.etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
+        <a target=_blank href="https://etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
         • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}… ${t.value!=null?`• ${t.value} ETH`:""}
       </div>`;
     }).join("");
@@ -329,7 +351,7 @@ async function loadAddressTxs(address, targetId){
     el.innerHTML=txs.map(t=>{
       const when=t.timestamp?new Date(t.timestamp).toLocaleString():"";
       return `<div>
-        <a target=_blank href="https://sepolia.etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
+        <a target=_blank href="https://etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
         • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}… ${t.value!=null?`• ${t.value} ETH`:""}
       </div>`;
     }).join("");
@@ -339,13 +361,11 @@ async function loadAddressTxs(address, targetId){
 /* ================================
    SafeSend Worker (ONLY) + modal
 ================================ */
-async function fetchSafeSendWorker({addr, chain="sepolia", amountEth=0, ens=""}){
+async function fetchSafeSendWorker(addr){
   try{
     const u=new URL(SAFE_SEND_URL + "/check");
     u.searchParams.set("address", addr);
-    u.searchParams.set("chain", chain);
-    if (amountEth) u.searchParams.set("amount", String(amountEth));
-    if (ens) u.searchParams.set("ens", ens);
+    u.searchParams.set("chain", currentNetwork);
     const r=await fetch(u.toString(), { cache: "no-store" });
     if(!r.ok) throw new Error("safesend_http_" + r.status);
     return await r.json(); // { score, decision, factors }
@@ -361,7 +381,7 @@ function severityClass(s){
   return "factor--low";
 }
 
-function openRiskModal({score, factors, decision}, onCancel, onProceed){
+function openRiskModal({score, factors}, onCancel, onProceed){
   const modal = document.getElementById("riskModal");
   const bar   = document.getElementById("riskMeterBar");
   const scoreEl = document.getElementById("riskScoreText");
@@ -372,21 +392,16 @@ function openRiskModal({score, factors, decision}, onCancel, onProceed){
   const btnProceed = document.getElementById("riskProceed");
   const btnClose   = document.getElementById("riskClose");
 
-  // reset
   list.innerHTML = "";
   agree.checked = false;
   btnProceed.disabled = true;
+  warn.style.display = (score >= 60) ? "block" : "none";
 
-  const isBlock = decision === "block";
-  const needsAck = !isBlock && (score >= 60);
-  warn.style.display = needsAck ? "block" : "none";
-
-  // animate meter 0 -> score
   const target = clamp(Number(score)||0, 0, 100);
   let cur = 0;
   bar.style.setProperty("--score", "0");
   scoreEl.textContent = `Risk score: ${cur}`;
-  modal.classList.add("active");
+  modal.classList.add("active"); // IMPORTANT: matches CSS
 
   const step = () => {
     cur = Math.min(cur + 2, target);
@@ -396,7 +411,6 @@ function openRiskModal({score, factors, decision}, onCancel, onProceed){
   };
   requestAnimationFrame(step);
 
-  // render factors
   (factors || []).forEach(f=>{
     const row = document.createElement("div");
     row.className = `factor ${severityClass(f.severity)}`;
@@ -404,7 +418,6 @@ function openRiskModal({score, factors, decision}, onCancel, onProceed){
     list.appendChild(row);
   });
 
-  // wire buttons
   const off = () => {
     btnCancel.onclick = btnProceed.onclick = btnClose.onclick = agree.onchange = null;
     modal.classList.remove("active");
@@ -413,17 +426,11 @@ function openRiskModal({score, factors, decision}, onCancel, onProceed){
   btnCancel.onclick = ()=>{ off(); onCancel?.(); };
   btnClose.onclick  = ()=>{ off(); onCancel?.(); };
 
-  if (isBlock) {
-    btnProceed.disabled = true;
-    btnProceed.textContent = "Blocked";
-    btnProceed.title = "This destination is blocked (e.g., OFAC).";
-  } else if (needsAck) {
-    btnProceed.textContent = "Complete transaction";
+  if (score >= 60) {
     agree.onchange = ()=>{ btnProceed.disabled = !agree.checked; };
     btnProceed.onclick = ()=>{ if(agree.checked){ off(); onProceed?.(); } };
   } else {
     btnProceed.disabled = false;
-    btnProceed.textContent = "Complete transaction";
     btnProceed.onclick = ()=>{ off(); onProceed?.(); };
   }
 }
@@ -441,14 +448,12 @@ async function sendEthFlow(){
 
   $("#sendOut").textContent="Checking SafeSend…";
 
-  // 1) Get risk from Worker (ONLY)
-  const risk = await fetchSafeSendWorker({ addr: to, chain: "sepolia", amountEth: n });
+  const risk = await fetchSafeSendWorker(to);
 
-  // 2) Always show modal
   openRiskModal(
-    { score: risk.score ?? 0, factors: risk.factors ?? [], decision: risk.decision ?? "allow" },
-    () => { $("#sendOut").textContent="Cancelled."; }, // cancel
-    async () => { // proceed
+    { score: risk.score ?? 0, factors: risk.factors ?? [] },
+    () => { $("#sendOut").textContent="Cancelled."; },
+    async () => {
       $("#sendOut").textContent = `SafeSend OK (${risk.score}). Sending…`;
       try{
         const signer=acct.wallet.connect(state.provider);
@@ -457,7 +462,8 @@ async function sendEthFlow(){
         if(fee?.maxFeePerGas){ tx.maxFeePerGas=fee.maxFeePerGas; tx.maxPriorityFeePerGas=fee.maxPriorityFeePerGas; }
         try { tx.gasLimit = await signer.estimateGas(tx); } catch {}
         const sent=await signer.sendTransaction(tx);
-        $("#sendOut").innerHTML=`Broadcasted: <a target=_blank href="https://sepolia.etherscan.io/tx/${sent.hash}">${sent.hash}</a>`;
+        // Use a generic explorer base (user can click; it may redirect network)
+        $("#sendOut").innerHTML=`Broadcasted: <a target=_blank href="https://etherscan.io/tx/${sent.hash}">${sent.hash}</a>`;
         await sent.wait(1);
         loadRecentTxs(); loadAddressTxs(to,'rxList');
       }catch(e){ $("#sendOut").textContent="Error: "+(e.message||e); }
