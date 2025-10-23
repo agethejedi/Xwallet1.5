@@ -1,225 +1,98 @@
-/* ===== Base / Theme ======================================================= */
+/* === Base =========================================================== */
 :root{
-  --bg:#0a0f15; --card:#0f1623; --text:#e8ebf1; --muted:#9aa4b2;
-  --border:#1f2a3a; --accent:#22d3ee; --accent-2:#06b6d4;
-  --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --info:#60a5fa;
-  --pill:#0c1420; --pill-on:#12283a; --shadow:0 6px 18px rgba(0,0,0,.35);
+  --bg:#0c1117; --card:#121826; --text:#e6e7ea; --muted:#9aa4b2;
+  --border:#262f40; --accent:#06b6d4; --accent-2:#22d3ee;
+  --danger:#ef4444; --warn:#f59e0b; --ok:#10b981;
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
-body{
-  background: radial-gradient(1200px 800px at 20% -10%, #0c1a26 0%, var(--bg) 60%), var(--bg);
-  color: var(--text);
-  font: 14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
-}
-a{color:#8dd8ff;text-decoration:none}a:hover{text-decoration:underline}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+a{color:#7dd3fc;text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:1100px;margin:0 auto;padding:24px}
 
-/* ===== Layout ============================================================== */
-.main{max-width:1100px;margin:24px auto;padding:0 20px}
-.card{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:18px;
-  box-shadow:var(--shadow);
-  margin-bottom:16px;
-}
-.section-title{margin:0 0 10px;font-weight:700}
+/* nav / hero / cards / sidebar -------------------------------------- */
+.nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.brand{font-weight:700;font-size:18px}.brand .x{color:var(--accent-2);margin-right:6px}
+.cta .badge{margin-left:8px}
+.hero .lead{color:var(--muted);max-width:850px}
+.badge{display:inline-block;padding:6px 10px;background:#0b1220;border:1px solid var(--border);border-radius:999px;margin-right:8px;color:var(--muted)}
 
-/* ===== Header / Nav (matches your HTML) =================================== */
-.rxl-header{
-  position:sticky;top:0;z-index:30;
-  background:linear-gradient(180deg,#0b121c 0%,rgba(11,18,28,0.85) 100%);
-  backdrop-filter:blur(6px);
-  border-bottom:1px solid var(--border);
-  box-shadow:0 6px 14px rgba(0,0,0,.25);
-}
-.rxl-header .brand,
-.rxl-header .nav{
-  max-width:1100px;margin:0 auto;padding:10px 20px;
-  display:flex;align-items:center;gap:16px;
-}
-.rxl-header .brand{justify-content:flex-start}
-.rxl-header .nav{justify-content:flex-end;padding-top:0;padding-bottom:10px}
+.section-title{font-weight:700;margin:18px 0 10px}
+.app-grid{display:grid;grid-template-columns:260px 1fr;gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
 
-.brand-logo{width:28px;height:28px;object-fit:contain}
-.brand-title{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
-.x-accent{color:var(--accent)}
-
-.nav{gap:14px}
-.nav-link{
-  display:inline-flex;align-items:center;justify-content:center;
-  padding:8px 10px;border-radius:10px;color:var(--text);text-decoration:none;
-  border:1px solid transparent;
+/* Sidebar items exactly like 1.4 (button feel + hover) */
+.sidebar .item{
+  padding:12px;border-radius:10px;border:1px solid var(--border);margin-bottom:10px;cursor:pointer;
+  background:#0b1220; transition: border-color .15s, background .15s, transform .05s;
 }
-.nav-link:hover{background:rgba(255,255,255,.04);border-color:var(--border);text-decoration:none}
-.nav-link.active{background:linear-gradient(90deg,var(--accent-2),var(--accent));color:#05222e;font-weight:700}
-.whats-new{color:#ffe082}
-
-.nav-divider{width:1px;height:22px;background:var(--border);margin:0 6px}
-.nav-button{cursor:pointer}
-
-/* Dropdown menu (Tools) */
-.nav-dropdown{position:relative}
-.menu{
-  position:absolute;right:0;top:calc(100% + 6px);
-  background:var(--card);border:1px solid var(--border);border-radius:12px;
-  min-width:220px;padding:8px;display:none;box-shadow:var(--shadow);
-}
-.menu.open{display:block}
-.menu-item{display:block;padding:10px;border-radius:8px;color:var(--text);text-decoration:none}
-.menu-item:hover{background:rgba(255,255,255,.05);text-decoration:none}
-
-/* ===== Hero ================================================================ */
-.hero{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;align-items:center}
-.hero-title{margin:0 0 4px;font-size:28px;letter-spacing:.2px}
-.pill{
-  display:inline-flex;align-items:center;height:22px;
-  padding:0 8px;border-radius:999px;font-size:12px;border:1px solid var(--border);
-}
-.pill-good{background:#0a2a22;color:#84f3c4;border-color:#134e4a}
-
-.hero-subtitle{color:var(--muted);margin:6px 0 10px}
-.hero-points{margin:0;padding-left:18px;color:var(--muted)}
-.hero-cta{text-align:right}
-.cta-hint{color:var(--muted);margin:8px 0 0}
-
-/* ===== Buttons ============================================================= */
-.btn{
-  background:#0b1220;color:var(--text);
-  border:1px solid var(--border);border-radius:12px;
-  padding:10px 12px;cursor:pointer;
-}
-.btn:hover{border-color:#2a3a52}
-.btn-primary{
-  background:linear-gradient(90deg,var(--accent-2),var(--accent));
-  color:#05131a;border-color:transparent;font-weight:800;
-}
-.btn-ghost{background:transparent}
-
-/* ===== Network selection (matches your HTML class names) =================== */
-.net-pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-.pill-select{
-  background:var(--pill);color:var(--text);border:1px solid var(--border);
-  border-radius:999px;padding:8px 10px;cursor:pointer;user-select:none;
-}
-.pill-select.pill-selected,
-.pill-select[aria-pressed="true"]{
-  background:var(--pill-on);border-color:#254a62;box-shadow:inset 0 0 0 1px rgba(34,211,238,.3)
+.sidebar .item:hover{border-color:#334155;background:#0d1524}
+.sidebar .item.active{
+  background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#041019; border-color:transparent; font-weight:800;
+  box-shadow:0 6px 16px rgba(34,211,238,.18);
 }
 
-.net-bulk{display:flex;gap:8px;margin-bottom:10px}
+/* Shared UI */
+.flex{display:flex;gap:8px;align-items:center}
+.sep{border:none;border-top:1px solid var(--border);margin:12px 0}
+.label{font-weight:700;margin-bottom:6px}
+.small{color:var(--muted);font-size:12px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
 
-.select-label{display:block;margin:6px 0;font-weight:700}
-.network-select{
-  width:100%;min-height:150px;background:#0b1220;color:var(--text);
-  border:1px solid var(--border);border-radius:12px;padding:8px;
-}
-.muted{color:var(--muted);margin:6px 0 0}
+/* buttons / inputs --------------------------------------------------- */
+.btn{background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px 12px;cursor:pointer}
+.btn:hover{border-color:#334155}
+.btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#041019;border:0;font-weight:800}
+.btn.ghost{background:transparent;border:1px solid var(--border)}
+.icon-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);padding:6px 8px;cursor:pointer}
+.icon-btn:hover{color:var(--text);border-color:#48556a}
+input,select,textarea{width:100%;background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px}
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{border-bottom:1px solid var(--border);padding:10px 6px;text-align:left}
 
-/* ===== Risk legend (matches your HTML: risk-grid / risk-item …) ============ */
-.risk-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.risk-item{display:flex;gap:10px;align-items:center;border:1px solid var(--border);border-radius:12px;padding:10px}
-.risk-name{font-weight:700}
-.risk-note{color:var(--muted);font-size:12px}
-.risk-dot{width:12px;height:12px;border-radius:50%;display:inline-block}
-.dot-hard{background:linear-gradient(135deg,#7f1d1d,var(--bad));box-shadow:0 0 0 2px #7f1d1d55}
-.dot-high{background:linear-gradient(135deg,#7c2d12,var(--warn));box-shadow:0 0 0 2px #7c2d1255}
-.dot-med {background:linear-gradient(135deg,#0b3a2c,var(--ok));  box-shadow:0 0 0 2px #0b3a2c55}
-.dot-info{background:linear-gradient(135deg,#0b2855,var(--info));box-shadow:0 0 0 2px #0b285555}
+/* lock modal --------------------------------------------------------- */
+.lock{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:60}
+.lock.active{display:flex}
+.lock .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:420px;width:100%}
 
-/* ===== Footer ============================================================== */
-.rxl-footer{
-  max-width:1100px;margin:12px auto 30px;padding:0 20px;
-  display:flex;align-items:center;justify-content:space-between;color:var(--muted);
-}
-.version-label{background:#0b1220;border:1px solid var(--border);padding:4px 8px;border-radius:8px}
+/* === Risk Review modal (1.4 styling) ================================ */
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#0008;z-index:70}
+.modal.active{display:flex}
+.modal__panel{background:var(--card);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;padding:18px}
+.modal__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.modal__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 
-/* ===== <dialog> “What’s New” ============================================== */
-.modal{border:none;padding:0;background:transparent}
-.modal::backdrop{background:rgba(0,0,0,.5);backdrop-filter:blur(2px)}
-.modal-card{
-  width:min(560px,calc(100vw - 32px));
-  margin:10vh auto;background:var(--card);color:var(--text);
-  border:1px solid var(--border);border-radius:14px;padding:0
+/* Risk Meter (animated) */
+.risk-meter{margin:6px 0 10px}
+.risk-meter__scale{
+  position:relative;height:18px;border-radius:999px;background:#0b1220;border:1px solid var(--border);overflow:hidden;
 }
-.modal-header,.modal-footer{
-  padding:12px 16px;display:flex;align-items:center;justify-content:space-between
+.risk-meter__bar{
+  position:absolute;left:0;top:0;bottom:0;width:calc(var(--score,0)*1%);
+  background:linear-gradient(90deg,#10b981 0% 60%,#f59e0b 60% 85%,#ef4444 85% 100%);
+  border-radius:999px;box-shadow:0 0 4px #000 inset;transition:width .6s ease;
 }
-.modal-body{padding:12px 16px}
-.icon-btn{
-  background:transparent;color:var(--muted);
-  border:1px solid var(--border);border-radius:10px;padding:6px 8px;cursor:pointer
-}
-.icon-btn:hover{color:var(--text);border-color:#2a3a52}
-.whats-list{margin:0;padding-left:18px}
+.risk-meter__labels{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+.risk-meter__score{margin-top:6px;font-weight:700}
 
-/* ===== Responsive ========================================================== */
-@media (max-width:920px){
-  .hero{grid-template-columns:1fr;text-align:left}
-  .hero-cta{text-align:left}
-  .risk-grid{grid-template-columns:1fr}
-/* === SafeSend Risk Modal (scoped to #riskModal) ===================== */
-#riskModal.modal{
-  position: fixed;
-  inset: 0;
-  display: none;                /* shown when .active */
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,.55);
-  z-index: 1000;                /* above header / cards */
-}
-#riskModal.modal.active{ display: flex; }
+/* Factors ------------------------------------------------------------ */
+.risk-factors{display:grid;gap:8px;margin-top:10px}
+.factor{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--border);border-radius:10px;padding:8px}
+.factor__badge{font-size:12px;padding:4px 8px;border-radius:999px;color:#061416;font-weight:700}
+.factor--low  .factor__badge{background:var(--ok)}
+.factor--medium .factor__badge,
+.factor--med .factor__badge{background:var(--warn)}
+.factor--high .factor__badge{background:var(--danger)}
 
-#riskModal .modal__panel{
-  width: min(560px, calc(100vw - 32px));
-  background: var(--card);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: var(--shadow);
-}
-#riskModal .modal__header{
-  display:flex; align-items:center; justify-content:space-between;
-  margin-bottom: 8px;
-}
-#riskModal .modal__actions{
-  display:flex; justify-content:flex-end; gap:8px; margin-top:12px;
-}
+/* Warning copy ------------------------------------------------------- */
+.risk-warning{border:1px solid #4c1d1d;background:#1b0b0b;border-radius:12px;padding:12px;margin-top:10px;color:#fca5a5}
+.checkbox{display:flex;align-items:center;gap:8px;margin-top:8px}
 
-/* Risk meter */
-#riskModal .risk-meter{ margin:6px 0 10px; }
-#riskModal .risk-meter__scale{
-  position:relative; height:18px; border-radius:999px;
-  background:#0b1220; border:1px solid var(--border); overflow:hidden;
-}
-#riskModal .risk-meter__bar{
-  position:absolute; left:0; top:0; bottom:0;
-  width: calc(var(--score,0)*1%);
-  background: linear-gradient(90deg, #10b981 0% 60%, #f59e0b 60% 85%, #ef4444 85% 100%);
-  border-radius:999px; box-shadow: inset 0 0 4px #000; transition: width .6s ease;
-}
-#riskModal .risk-meter__labels{
-  display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:6px;
-}
-#riskModal .risk-meter__score{ margin-top:6px; font-weight:700; }
+/* Risk chips on history items --------------------------------------- */
+.chip{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;border:1px solid var(--border);margin-left:6px}
+.chip.low{background:#072d26;color:#6ee7b7;border-color:#0f3d35}
+.chip.med{background:#3a2b08;color:#fde68a;border-color:#6b4d0e}
+.chip.high{background:#3b0a0a;color:#fca5a5;border-color:#7f1d1d}
 
-/* Factors */
-#riskModal .risk-factors{ display:grid; gap:8px; margin-top:10px; }
-#riskModal .factor{
-  display:flex; align-items:flex-start; gap:8px;
-  border:1px solid var(--border); border-radius:10px; padding:8px;
-}
-#riskModal .factor__badge{ font-size:12px; padding:4px 8px; border-radius:999px; color:#061416; font-weight:700; }
-#riskModal .factor.factor--low  .factor__badge{ background: var(--ok); }
-#riskModal .factor.factor--medium .factor__badge{ background: var(--warn); }
-#riskModal .factor.factor--high .factor__badge{ background: var(--bad); }
-
-/* Warning copy */
-#riskModal .risk-warning{
-  border:1px solid #4c1d1d; background:#1b0b0b; border-radius:12px;
-  padding:12px; margin-top:10px; color:#fca5a5;
-}
-#riskModal .checkbox{ display:flex; align-items:center; gap:8px; margin-top:8px; }
-}
+/* send form ---------------------------------------------------------- */
+.send-form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center}
+@media (max-width:840px){.app-grid{grid-template-columns:1fr}.send-form{grid-template-columns:1fr}}
