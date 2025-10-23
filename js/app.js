@@ -10,12 +10,12 @@ document.addEventListener("DOMContentLoaded", () => {
 ================================ */
 // Fill in YOUR Alchemy URLs (you can reuse the same project key if multi-chain)
 const RPCS = {
-  ethereum: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  base:     "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  polygon:  "https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  arbitrum: "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  optimism: "https://opt-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  sepolia:  "https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY" // your existing key works here
+  ethereum: "https://eth-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  base:     "https://base-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  polygon:  "https://polygon-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  arbitrum: "https://arb-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  optimism: "https://opt-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
+  sepolia:  "https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0"// your existing key works here
 };
 
 // SafeSend Worker (risk checks)
