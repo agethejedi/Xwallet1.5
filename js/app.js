@@ -1,24 +1,48 @@
 // =========================================
-// X-Wallet v1.5 — v1.4 UI + Multi-network + SafeSend Worker + Alchemy history
+// X-Wallet v1.5 — Multi-chain + ERC20 balances + refreshed history
 // =========================================
 import { ethers } from "https://esm.sh/ethers@6.13.2";
 
 document.addEventListener("DOMContentLoaded", () => {
 
 /* ================================
-   CONFIG (multi-network)
+   CONFIG (set your Alchemy key)
 ================================ */
-// Fill in YOUR Alchemy URLs (you can reuse the same project key if multi-chain)
-const RPCS = {
-  ethereum: "https://eth-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
-  base:     "https://base-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
-  polygon:  "https://polygon-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
-  arbitrum: "https://arb-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
-  optimism: "https://opt-mainnet.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0",
-  sepolia:  "https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0"// your existing key works here
+const ALCHEMY_KEY = "YOUR_ALCHEMY_KEY_HERE"; // <--- paste your key
+
+// Build Alchemy RPCs from the single key
+const CHAINS = {
+  ethereum: {
+    id: 1,
+    label: "Ethereum",
+    nativeSymbol: "ETH",
+    rpc: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    explorer: "https://etherscan.io",
+  },
+  base: {
+    id: 8453,
+    label: "Base",
+    nativeSymbol: "ETH",
+    rpc: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    explorer: "https://basescan.org",
+  },
+  polygon: {
+    id: 137,
+    label: "Polygon",
+    nativeSymbol: "MATIC",
+    rpc: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    explorer: "https://polygonscan.com",
+  },
+  sepolia: {
+    id: 11155111,
+    label: "Sepolia",
+    nativeSymbol: "ETH",
+    rpc: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    explorer: "https://sepolia.etherscan.io",
+  },
 };
 
-// SafeSend Worker (risk checks)
+// SafeSend Worker (unchanged)
 const SAFE_SEND_URL = "https://xwalletv1dot2.agedotcom.workers.dev";
 
 /* ================================
@@ -27,6 +51,7 @@ const SAFE_SEND_URL = "https://xwalletv1dot2.agedotcom.workers.dev";
 const $  = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
 
 /* ================================
    AES-GCM vault
@@ -54,30 +79,16 @@ async function aesDecrypt(password, payload){
 ================================ */
 const STORAGE_KEY_VAULT = "xwallet_vault_v13";
 const STORAGE_KEY_ACCTS = "xwallet_accounts_n";
-const STORAGE_KEY_NET   = "xwallet_network";
+const STORAGE_CHAIN     = "xw.chain";
 
 const state = {
   unlocked:false,
   provider:null,
+  chainKey: localStorage.getItem(STORAGE_CHAIN) || "sepolia",
   decryptedPhrase:null,
   accounts:[], // [{ index, wallet, address }]
   signerIndex:0
 };
-
-// network selection + persistence
-let currentNetwork = localStorage.getItem(STORAGE_KEY_NET) || "sepolia";
-const netSel = $("#networkSelect");
-if (netSel) {
-  netSel.value = currentNetwork;
-  netSel.addEventListener("change", (e) => {
-    currentNetwork = e.target.value;
-    localStorage.setItem(STORAGE_KEY_NET, currentNetwork);
-    if (state.unlocked) {
-      state.provider = new ethers.JsonRpcProvider(RPCS[currentNetwork]);
-    }
-  });
-}
-
 const getVault = () => (localStorage.getItem(STORAGE_KEY_VAULT) ? JSON.parse(localStorage.getItem(STORAGE_KEY_VAULT)) : null);
 const setVault = (v) => localStorage.setItem(STORAGE_KEY_VAULT, JSON.stringify(v));
 const getAccountCount = () => {
@@ -93,6 +104,14 @@ function lock(){
 function scheduleAutoLock(){
   clearTimeout(window._inactivityTimer);
   window._inactivityTimer = setTimeout(()=>{ lock(); showLock(); }, 10*60*1000);
+}
+function setChain(chainKey){
+  if (!CHAINS[chainKey]) return;
+  state.chainKey = chainKey;
+  localStorage.setItem(STORAGE_CHAIN, chainKey);
+  state.provider = new ethers.JsonRpcProvider(CHAINS[chainKey].rpc);
+  // Refresh any open views that depend on provider
+  refreshOpenView();
 }
 
 /* ================================
@@ -112,39 +131,80 @@ function loadAccountsFromPhrase(phrase){
 }
 
 /* ================================
-   Alchemy transfers (history) — chain-agnostic
+   Alchemy: history + ERC20 balances
 ================================ */
+// History (include ERC20 so USDC transfers appear)
 async function getTxsAlchemy(address, { limit = 10 } = {}) {
   if (!state.provider) throw new Error("Provider not ready");
   if (!ethers.isAddress(address)) return [];
+
   const base = {
     fromBlock: "0x0",
     toBlock: "latest",
-    category: ["external"],
+    category: ["external","erc20"], // include ERC20 transfers
     withMetadata: true,
-    excludeZeroValue: false,
+    excludeZeroValue: true,
     maxCount: "0x" + Math.max(1, Math.min(100, limit)).toString(16),
     order: "desc",
   };
+
   const [outRes, inRes] = await Promise.all([
     state.provider.send("alchemy_getAssetTransfers", [{ ...base, fromAddress: address }]).catch(() => ({ transfers: [] })),
     state.provider.send("alchemy_getAssetTransfers", [{ ...base, toAddress: address }]).catch(() => ({ transfers: [] }))
   ]);
 
+  const all = [ ...(outRes?.transfers||[]), ...(inRes?.transfers||[]) ];
+  // Normalize
   const norm = (t) => {
     const ts = t?.metadata?.blockTimestamp ? Date.parse(t.metadata.blockTimestamp) : 0;
     return {
       hash: t?.hash || "",
       from: t?.from || "",
       to: t?.to || "",
-      value: t?.value != null ? Number(t.value) : null,
+      asset: t?.asset || (t.category === "erc20" ? (t?.rawContract?.address||"ERC20") : CHAINS[state.chainKey].nativeSymbol),
+      value: t?.value != null ? t.value : null,
       timestamp: Number.isFinite(ts) ? ts : 0
     };
   };
+  const mapped = all.map(norm);
+  mapped.sort((a,b)=>b.timestamp-a.timestamp);
+  return mapped.slice(0, limit);
+}
 
-  const all = [...(outRes?.transfers||[]), ...(inRes?.transfers||[])].map(norm);
-  all.sort((a,b)=>b.timestamp-a.timestamp);
-  return all.slice(0, limit);
+// ERC20 balances (non-zero) with metadata
+async function getERC20Balances(address){
+  if (!state.provider) return [];
+  try{
+    const res = await state.provider.send("alchemy_getTokenBalances", [address, "erc20"]);
+    const list = (res?.tokenBalances || []).filter(tb => tb?.tokenBalance && tb.tokenBalance !== "0x0");
+    // Pull metadata for the first 20 tokens with nonzero balances
+    const top = list.slice(0, 20);
+    const metas = await Promise.all(top.map(t =>
+      state.provider.send("alchemy_getTokenMetadata", [t.contractAddress]).catch(()=>null)
+    ));
+    // Format
+    return top.map((t, i) => {
+      const m = metas[i] || {};
+      const decimals = Number(m.decimals || 18);
+      let raw = BigInt(t.tokenBalance);
+      // Some responses include hex strings; ensure BigInt parse is correct
+      // If it's a decimal string, fallback
+      if (typeof raw !== "bigint") {
+        try { raw = BigInt(t.tokenBalance); } catch { raw = 0n; }
+      }
+      const human = Number(raw) / 10**decimals;
+      return {
+        contract: t.contractAddress,
+        symbol: m.symbol || "ERC20",
+        name: m.name || "Token",
+        decimals,
+        amount: human
+      };
+    }).filter(x => x.amount > 0);
+  }catch(e){
+    console.warn("getERC20Balances failed", e);
+    return [];
+  }
 }
 
 /* ================================
@@ -157,6 +217,15 @@ const VIEWS={
     const accRows=unlocked&&state.accounts.length?
       state.accounts.map(a=>`<tr><td>${a.index+1}</td><td class="mono">${a.address}</td></tr>`).join(""):
       "<tr><td colspan='2'>No wallets yet.</td></tr>";
+
+    const networkSelect = `
+      <div class="label">Network</div>
+      <select id="netSelect">
+        ${Object.keys(CHAINS).map(k=>`<option value="${k}" ${k===state.chainKey?"selected":""}>${CHAINS[k].label}</option>`).join("")}
+      </select>
+      <div class="small">Explorer: ${CHAINS[state.chainKey].explorer.replace(/^https?:\/\//,"")}</div>
+      <hr class="sep"/>
+    `;
 
     const createImport=!hasVault?`
       <div class="grid-2">
@@ -185,15 +254,27 @@ const VIEWS={
       </table>
     `:"";
 
-    return `<div class="label">Control Center</div><hr class="sep"/>${createImport}${manage}`;
+    return `<div class="label">Control Center</div>
+      ${networkSelect}
+      ${createImport}${manage}`;
   },
 
   wallets(){
+    const native = CHAINS[state.chainKey].nativeSymbol;
     const rows=state.accounts.map(a=>`
-      <tr><td>${a.index+1}</td><td class="mono">${a.address}</td><td id="bal-${a.index}">—</td></tr>`).join("");
-    return `<div class="label">Wallet Balances</div>
-      <table class="table small"><thead><tr><th>#</th><th>Address</th><th>ETH</th></tr></thead><tbody>${rows}</tbody></table>
-      <div id="totalBal" class="small"></div>`;
+      <tr>
+        <td>${a.index+1}</td>
+        <td class="mono">${a.address}</td>
+        <td id="bal-${a.index}">—</td>
+      </tr>`).join("");
+    return `
+      <div class="label">Wallet Balances — ${native}</div>
+      <table class="table small"><thead><tr><th>#</th><th>Address</th><th>${native}</th></tr></thead><tbody>${rows}</tbody></table>
+      <div id="totalBal" class="small"></div>
+      <hr class="sep"/>
+      <div class="label">ERC-20 balances</div>
+      <div id="erc20List" class="small">—</div>
+    `;
   },
 
   send(){
@@ -201,11 +282,11 @@ const VIEWS={
       Wallet #${a.index+1} — ${a.address.slice(0,6)}…${a.address.slice(-4)}</option>`).join("")||"<option disabled>No wallets</option>";
 
     return `
-      <div class="label">Send (Network: <span class="mono">${currentNetwork}</span>)</div>
+      <div class="label">Send (${CHAINS[state.chainKey].label})</div>
       <div class="send-form">
         <select id="fromAccount">${acctOpts}</select>
         <input id="sendTo" placeholder="Recipient 0x address"/>
-        <input id="sendAmt" placeholder="Amount (ETH)"/>
+        <input id="sendAmt" placeholder="Amount (${CHAINS[state.chainKey].nativeSymbol})"/>
         <button class="btn primary" id="doSend">Send</button>
       </div>
       <div id="sendOut" class="small"></div>
@@ -213,11 +294,11 @@ const VIEWS={
       <hr class="sep"/>
       <div class="grid-2">
         <div>
-          <div class="label">Your last 10 transactions</div>
+          <div class="label">Your last 10 transfers</div>
           <div id="txList" class="small">—</div>
         </div>
         <div>
-          <div class="label">Recipient recent txs</div>
+          <div class="label">Recipient recent transfers</div>
           <div id="rxList" class="small">—</div>
         </div>
       </div>
@@ -237,6 +318,15 @@ function render(view){
   if(!VIEWS[view]){root.innerHTML="<div>Not found</div>";return;}
   root.innerHTML=VIEWS[view]();
 
+  // Network select (present on dashboard header)
+  const ns = $("#netSelect");
+  if (ns) {
+    ns.addEventListener("change", (e) => {
+      setChain(e.target.value); // rebuild provider + persist
+    });
+  }
+
+  // ---- dashboard handlers ----
   if(view==="dashboard"){
     $("#gen")?.addEventListener("click",()=>{$("#mnemonic").value=ethers.Mnemonic.fromEntropy(ethers.randomBytes(16)).phrase;});
     $("#save")?.addEventListener("click",async()=>{
@@ -260,8 +350,10 @@ function render(view){
     });
   }
 
-  if(view==="wallets"){loadWalletBalances();}
+  // ---- wallets ----
+  if(view==="wallets"){ loadWalletBalances(); loadERC20Balances(); }
 
+  // ---- send ----
   if(view==="send"){
     $("#fromAccount")?.addEventListener("change",(e)=>{ state.signerIndex=Number(e.target.value); loadRecentTxs(); });
     $("#doSend")?.addEventListener("click",sendEthFlow);
@@ -274,9 +366,16 @@ function render(view){
     loadRecentTxs(); updateRx();
   }
 
+  // ---- settings ----
   if(view==="settings"){
     $("#wipe")?.addEventListener("click",()=>{ if(confirm("Delete vault?")){ localStorage.clear(); lock(); alert("Deleted. Reload."); } });
   }
+}
+
+function refreshOpenView(){
+  // Re-render the active sidebar view to pick up new chain/provider
+  const active = document.querySelector(".sidebar .item.active")?.dataset?.view || "dashboard";
+  render(active);
 }
 
 /* ================================
@@ -299,7 +398,7 @@ $("#doUnlock")?.addEventListener("click",async()=>{
     state.decryptedPhrase=phrase;
     if(!getAccountCount()) setAccountCount(1);
     loadAccountsFromPhrase(phrase);
-    state.provider=new ethers.JsonRpcProvider(RPCS[currentNetwork]);
+    setChain(state.chainKey); // build provider for current chain
     state.unlocked=true;
     const ls=document.getElementById("lockState"); if(ls) ls.textContent="Unlocked";
     hideLock(); scheduleAutoLock(); selectItem("dashboard");
@@ -311,17 +410,36 @@ $("#doUnlock")?.addEventListener("click",async()=>{
 ================================ */
 async function loadWalletBalances(){
   if(!state.unlocked||!state.provider) return;
+  const native = CHAINS[state.chainKey].nativeSymbol;
   let total=0n;
   for(const a of state.accounts){
     try{
       const b=await state.provider.getBalance(a.address);
       total+=b;
       const cell=document.getElementById(`bal-${a.index}`);
-      if(cell) cell.textContent=ethers.formatEther(b);
+      if(cell) cell.textContent=`${fmt(ethers.formatEther(b))}`;
     }catch{}
   }
   const tb=document.getElementById("totalBal");
-  if(tb) tb.textContent="Total (ETH): "+ethers.formatEther(total);
+  if(tb) tb.textContent=`Total (${native}): ${fmt(ethers.formatEther(total))}`;
+}
+
+async function loadERC20Balances(){
+  if(!state.unlocked||!state.provider) return;
+  const acct = state.accounts[state.signerIndex];
+  const el = $("#erc20List"); if (!el) return;
+  el.textContent = "Loading…";
+  try{
+    const list = await getERC20Balances(acct.address);
+    if (!list.length){ el.textContent = "No ERC-20 balances detected."; return; }
+    el.innerHTML = list
+      .sort((a,b)=>b.amount-a.amount)
+      .map(t => `<div>${t.symbol} — ${fmt(t.amount)} <span class="small">(${t.name})</span></div>`)
+      .join("");
+  }catch(e){
+    console.warn(e);
+    el.textContent = "Could not load ERC-20 balances.";
+  }
 }
 
 async function loadRecentTxs(){
@@ -330,15 +448,17 @@ async function loadRecentTxs(){
   try{
     const acct=state.accounts[state.signerIndex]; if(!acct){ el.textContent="No wallet selected."; return; }
     const txs=await getTxsAlchemy(acct.address,{limit:10});
-    if(!txs.length){ el.textContent="No recent txs."; return; }
+    if(!txs.length){ el.textContent="No recent transfers."; return; }
     el.innerHTML=txs.map(t=>{
       const when=t.timestamp?new Date(t.timestamp).toLocaleString():"";
+      const ex=CHAINS[state.chainKey].explorer;
       return `<div>
-        <a target=_blank href="https://etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
-        • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}… ${t.value!=null?`• ${t.value} ETH`:""}
+        <a target=_blank href="${ex}/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
+        • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}…
+        ${t.value!=null?`• ${t.value} ${t.asset || ""}`:""}
       </div>`;
     }).join("");
-  }catch(e){ console.warn(e); el.textContent="Could not load recent transactions."; }
+  }catch(e){ console.warn(e); el.textContent="Could not load recent transfers."; }
 }
 
 async function loadAddressTxs(address, targetId){
@@ -347,25 +467,29 @@ async function loadAddressTxs(address, targetId){
   el.textContent="Loading…";
   try{
     const txs=await getTxsAlchemy(address,{limit:10});
-    if(!txs.length){ el.textContent="No recent txs."; return; }
+    if(!txs.length){ el.textContent="No recent transfers."; return; }
+    const ex=CHAINS[state.chainKey].explorer;
     el.innerHTML=txs.map(t=>{
       const when=t.timestamp?new Date(t.timestamp).toLocaleString():"";
       return `<div>
-        <a target=_blank href="https://etherscan.io/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
-        • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}… ${t.value!=null?`• ${t.value} ETH`:""}
+        <a target=_blank href="${ex}/tx/${t.hash}">${t.hash.slice(0,10)}…</a>
+        • ${when} • ${t.from?.slice(0,6)}… → ${t.to?.slice(0,6)}…
+        ${t.value!=null?`• ${t.value} ${t.asset || ""}`:""}
       </div>`;
     }).join("");
-  }catch(e){ console.warn(e); el.textContent="Could not load transactions for this address."; }
+  }catch(e){ console.warn(e); el.textContent="Could not load transfers for this address."; }
 }
 
 /* ================================
    SafeSend Worker (ONLY) + modal
+   (unchanged logic; still called before send)
 ================================ */
 async function fetchSafeSendWorker(addr){
   try{
     const u=new URL(SAFE_SEND_URL + "/check");
     u.searchParams.set("address", addr);
-    u.searchParams.set("chain", currentNetwork);
+    // chain hint for worker (use key)
+    u.searchParams.set("chain", state.chainKey);
     const r=await fetch(u.toString(), { cache: "no-store" });
     if(!r.ok) throw new Error("safesend_http_" + r.status);
     return await r.json(); // { score, decision, factors }
@@ -374,13 +498,11 @@ async function fetchSafeSendWorker(addr){
     return { score: 10, decision: "allow", factors: [{severity:"low",label:"Risk service unavailable",reason:"Using default low risk."}] };
   }
 }
-
 function severityClass(s){
-  if(s==="high"||s==="critical") return "factor--high";
-  if(s==="medium"||s==="med")    return "factor--med";
+  if(s==="high") return "factor--high";
+  if(s==="medium") return "factor--medium";
   return "factor--low";
 }
-
 function openRiskModal({score, factors}, onCancel, onProceed){
   const modal = document.getElementById("riskModal");
   const bar   = document.getElementById("riskMeterBar");
@@ -392,16 +514,18 @@ function openRiskModal({score, factors}, onCancel, onProceed){
   const btnProceed = document.getElementById("riskProceed");
   const btnClose   = document.getElementById("riskClose");
 
+  // reset
   list.innerHTML = "";
   agree.checked = false;
   btnProceed.disabled = true;
   warn.style.display = (score >= 60) ? "block" : "none";
 
+  // animate meter 0 -> score
   const target = clamp(Number(score)||0, 0, 100);
   let cur = 0;
   bar.style.setProperty("--score", "0");
   scoreEl.textContent = `Risk score: ${cur}`;
-  modal.classList.add("active"); // IMPORTANT: matches CSS
+  modal.classList.add("show");
 
   const step = () => {
     cur = Math.min(cur + 2, target);
@@ -420,9 +544,8 @@ function openRiskModal({score, factors}, onCancel, onProceed){
 
   const off = () => {
     btnCancel.onclick = btnProceed.onclick = btnClose.onclick = agree.onchange = null;
-    modal.classList.remove("active");
+    modal.classList.remove("show");
   };
-
   btnCancel.onclick = ()=>{ off(); onCancel?.(); };
   btnClose.onclick  = ()=>{ off(); onCancel?.(); };
 
@@ -462,14 +585,14 @@ async function sendEthFlow(){
         if(fee?.maxFeePerGas){ tx.maxFeePerGas=fee.maxFeePerGas; tx.maxPriorityFeePerGas=fee.maxPriorityFeePerGas; }
         try { tx.gasLimit = await signer.estimateGas(tx); } catch {}
         const sent=await signer.sendTransaction(tx);
-        // Use a generic explorer base (user can click; it may redirect network)
-        $("#sendOut").innerHTML=`Broadcasted: <a target=_blank href="https://etherscan.io/tx/${sent.hash}">${sent.hash}</a>`;
+        const ex=CHAINS[state.chainKey].explorer;
+        $("#sendOut").innerHTML=`Broadcasted: <a target=_blank href="${ex}/tx/${sent.hash}">${sent.hash}</a>`;
         await sent.wait(1);
         loadRecentTxs(); loadAddressTxs(to,'rxList');
+        loadWalletBalances(); // update balances after send
       }catch(e){ $("#sendOut").textContent="Error: "+(e.message||e); }
     }
   );
 }
 
 }); // DOMContentLoaded
-
