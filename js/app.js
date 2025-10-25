@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
 /* ================================
    CONFIG (set your Alchemy key)
 ================================ */
-const ALCHEMY_KEY = "YOUR_ALCHEMY_KEY_HERE"; // <--- paste your key
+const ALCHEMY_KEY = "kxHg5y9yBXWAb9cOcJsf0" ; // <--- paste your key
 
 // Build Alchemy RPCs from the single key
 const CHAINS = {
@@ -16,28 +16,28 @@ const CHAINS = {
     id: 1,
     label: "Ethereum",
     nativeSymbol: "ETH",
-    rpc: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    rpc: `https://eth-mainnet.g.alchemy.com/v2/${kxHg5y9yBXWAb9cOcJsf0}`,
     explorer: "https://etherscan.io",
   },
   base: {
     id: 8453,
     label: "Base",
     nativeSymbol: "ETH",
-    rpc: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    rpc: `https://base-mainnet.g.alchemy.com/v2/${kxHg5y9yBXWAb9cOcJsf0}`,
     explorer: "https://basescan.org",
   },
   polygon: {
     id: 137,
     label: "Polygon",
     nativeSymbol: "MATIC",
-    rpc: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    rpc: `https://polygon-mainnet.g.alchemy.com/v2/${kxHg5y9yBXWAb9cOcJsf0}`,
     explorer: "https://polygonscan.com",
   },
   sepolia: {
     id: 11155111,
     label: "Sepolia",
     nativeSymbol: "ETH",
-    rpc: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    rpc: `https://eth-sepolia.g.alchemy.com/v2/${kxHg5y9yBXWAb9cOcJsf0}`,
     explorer: "https://sepolia.etherscan.io",
   },
 };
