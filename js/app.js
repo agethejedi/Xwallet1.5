@@ -1,7 +1,8 @@
 // X-Wallet v1.5 — fail-safe app.js (buttons always responsive)
 // - No top-level imports. Ethers is loaded dynamically.
 // - UI & listeners attach even if network/CSP block esm.sh.
-// - Minimal debug overlay to confirm JS boot status.
+// - Debug overlay shows boot / ethers status.
+// - Regex fix: use host(explorerUrl) instead of .replace(/^https?:\/\//,'')
 
 (function () {
 
@@ -70,6 +71,7 @@
   const $$ = (q, el=document)=>[...el.querySelectorAll(q)];
   const fmt = (n)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:6});
   const clamp=(n,a=0,b=100)=>Math.max(a,Math.min(b,n));
+  const host = (u)=>{ try { return new URL(u).host; } catch { return u; } }; // regex-free, safe
 
   function setChain(chainKey){
     if (!CONFIG.CHAINS[chainKey]) return;
@@ -153,7 +155,7 @@
         <div class="label">Control Center</div>
         <div class="small">Current network</div>
         <div class="label">${net.label}</div>
-        <div class="small">Explorer: ${net.explorer.replace(/^https?:\\/\\//,"")}</div>
+        <div class="small">Explorer: ${host(net.explorer)}</div>
         <hr class="sep"/>
         ${createImport}
         ${manage}
@@ -258,6 +260,17 @@
   function selectItem(v){
     $$(".sidebar .item").forEach(x=>x.classList.toggle("active", x.dataset.view===v));
     render(v);
+  }
+
+  /* ===== AES vault helpers ========================================== */
+  async function aesEncrypt(password, plaintext){
+    const enc=new TextEncoder();
+    const salt=crypto.getRandomValues(new Uint8Array(16));
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const km=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+    const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["encrypt"]);
+    const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(plaintext)));
+    return {ct:Array.from(ct),iv:Array.from(iv),salt:Array.from(salt)};
   }
 
   /* ===== History / Balances (all guarded) ===== */
@@ -501,7 +514,6 @@
         const payload=JSON.parse(v);
         if (!await ensureEthersLoaded()) return $("#unlockMsg").textContent="Ethers not loaded. Check CSP.";
         const phrase = await (async ()=>{ // decrypt
-          const dec = new TextDecoder(); // avoid hoist issues
           const {ct,iv,salt} = payload.enc;
           const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), {name:"PBKDF2"}, false, ["deriveKey"]);
           const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt:new Uint8Array(salt),iterations:100000,hash:"SHA-256"}, km, {name:"AES-GCM",length:256}, false, ["decrypt"]);
