@@ -9,7 +9,7 @@ console.log("X-Wallet v1.5 booting…");
 document.addEventListener("DOMContentLoaded", () => {
 
 /* ===== CONFIG ===================================================== */
-const ALCHEMY_KEY   = "YOUR_ALCHEMY_KEY"; // <-- set me
+const ALCHEMY_KEY   = "kxHg5y9yBXWAb9cOcJsf0"; // <-- set me
 const SAFE_SEND_ORG = "https://xwalletv1dot2.agedotcom.workers.dev";
 const SAFE_SEND_URL = `${SAFE_SEND_ORG}/check`;      // GET ?address=&chain=
 const ANALYTICS_URL = `${SAFE_SEND_ORG}/analytics`;  // optional enrichment
