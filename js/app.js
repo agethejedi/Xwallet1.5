@@ -7,7 +7,7 @@
 
   /* ================= CONFIG ================= */
   const CONFIG = {
-    ALCHEMY_KEY: "YOUR_ALCHEMY_KEY", // <-- set me
+    ALCHEMY_KEY: "kxHg5y9yBXWAb9cOcJsf0", // <-- set me
     SAFE_SEND_ORG: "https://xwalletv1dot2.agedotcom.workers.dev",
     CHAINS: {
       ethereum:{id:1, label:"Ethereum Mainnet",  nativeSymbol:"ETH",
