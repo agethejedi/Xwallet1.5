@@ -1,14 +1,16 @@
 // =============================================================
 // X-Wallet v1.5 — Multi-network, ERC20 support, SafeSend fixed
-// (Aligned with index.html + styles.css; never hangs on risk checks)
+// (Uses bundled ESM to avoid blocked cross-imports; never hangs)
 // =============================================================
-import { ethers } from "https://esm.sh/ethers@6.13.2";
+import { ethers } from "https://esm.sh/ethers@6.13.2?bundle";
+
+console.log("X-Wallet v1.5 booting…");
 
 document.addEventListener("DOMContentLoaded", () => {
 
 /* ===== CONFIG ===================================================== */
 const ALCHEMY_KEY   = "YOUR_ALCHEMY_KEY"; // <-- set me
-const SAFE_SEND_ORG = "https://xwalletv1dot2.agedotcom.workers.dev"; // origin
+const SAFE_SEND_ORG = "https://xwalletv1dot2.agedotcom.workers.dev";
 const SAFE_SEND_URL = `${SAFE_SEND_ORG}/check`;      // GET ?address=&chain=
 const ANALYTICS_URL = `${SAFE_SEND_ORG}/analytics`;  // optional enrichment
 
@@ -35,11 +37,7 @@ const $  = q=>document.querySelector(q);
 const $$ = q=>[...document.querySelectorAll(q)];
 const clamp=(n,a=0,b=100)=>Math.max(a,Math.min(b,n));
 const fmt=n=>Number(n).toLocaleString(undefined,{maximumFractionDigits:6});
-const storage = {
-  VAULT:"xwallet_vault_v13",
-  ACCTS:"xwallet_accounts_n",
-  CHAIN:"xw.chain"
-};
+const storage = { VAULT:"xwallet_vault_v13", ACCTS:"xwallet_accounts_n", CHAIN:"xw.chain" };
 
 /* ===== AES vault helpers ========================================== */
 async function aesEncrypt(password, plaintext){
@@ -68,8 +66,8 @@ const state={
   decryptedPhrase:null,
   accounts:[],
   signerIndex:0,
-  pendingTx:null,       // {to, amount}
-  lastRisk:null         // {score, factors[]}
+  pendingTx:null,
+  lastRisk:null
 };
 
 const getVault =()=>localStorage.getItem(storage.VAULT)?JSON.parse(localStorage.getItem(storage.VAULT)):null;
@@ -117,9 +115,7 @@ function setChain(chainKey){
   state.chainKey=chainKey;
   localStorage.setItem(storage.CHAIN,chainKey);
   state.provider=new ethers.JsonRpcProvider(CHAINS[chainKey].rpc);
-  // keep top selector in sync
-  const sel=$("#networkSelect");
-  if(sel && sel.value!==chainKey){ sel.value = chainKey; }
+  const sel=$("#networkSelect"); if(sel && sel.value!==chainKey){ sel.value = chainKey; }
   refreshOpenView();
 }
 function populateTopNetworkSelect(){
@@ -409,7 +405,7 @@ function setProceedEnabled(enabled){
 /* ===== SafeSend fetching with hard timeout ========================= */
 async function fetchSafeSend(addr, chainKey){
   const controller = new AbortController();
-  const t = setTimeout(()=>controller.abort("risk-timeout"), 8000); // 8s max
+  const t = setTimeout(()=>controller.abort("risk-timeout"), 8000);
   try{
     const u = new URL(SAFE_SEND_URL);
     u.searchParams.set("address", addr.toLowerCase());
@@ -424,11 +420,9 @@ async function fetchSafeSend(addr, chainKey){
     ]};
   } finally { clearTimeout(t); }
 }
-
-/* Optional short enrichment; never blocks the UI */
 async function fetchEnrichment(addr, chainKey){
   const controller = new AbortController();
-  const t = setTimeout(()=>controller.abort("analytics-timeout"), 3000); // 3s cap
+  const t = setTimeout(()=>controller.abort("analytics-timeout"), 3000);
   try{
     const u = new URL(ANALYTICS_URL);
     u.searchParams.set("address", addr.toLowerCase());
@@ -442,23 +436,19 @@ async function fetchEnrichment(addr, chainKey){
 function mergeRisk(server, enrich){
   let score = Number(server?.score ?? 0);
   const factors = [...(server?.factors || [])];
-
   const ofac = server?.flags?.ofac || enrich?.sanctions?.hit;
   if(ofac){ score += 55; factors.push({label:"Sanctions watchlist match (OFAC)"}); }
-
   const mixer = server?.flags?.mixer || enrich?.exposures?.mixer;
   const scam  = server?.flags?.scam  || enrich?.exposures?.scam;
   if(mixer){ score += 20; factors.push({label:"Exposure to known mixers"}); }
   if(scam) { score += 25; factors.push({label:"Exposure to reported scam clusters"}); }
-
   const newAddr = server?.flags?.newAddr ?? (enrich?.heuristics?.ageDays !== undefined && enrich.heuristics.ageDays < 7);
   if(newAddr){ score += 8; factors.push({label:"Newly observed address"}); }
-
   score = clamp(Math.round(score),0,100);
   return { score, factors };
 }
 
-/* ===== Send flow (opens risk modal first) ========================= */
+/* ===== Send flow =================================================== */
 async function sendEthFlow(){
   const to = $("#sendTo").value.trim();
   const amt = $("#sendAmt").value.trim();
@@ -472,7 +462,6 @@ async function sendEthFlow(){
   $("#sendOut").textContent = "Checking SafeSend…";
   openRiskModal();
 
-  // Run checks in background; UI is already visible and won’t hang
   try{
     const server = await fetchSafeSend(to, state.chainKey);
     const enrich = await fetchEnrichment(to, state.chainKey);
@@ -524,15 +513,25 @@ async function doProceedAfterRisk(){
 
 /* ===== Bootstrapping ============================================== */
 function init(){
-  // Top CTA buttons (optional)
   $("#ctaLearn")?.addEventListener("click",()=>alert("Docs/learn more coming soon."));
   $("#ctaApp")?.addEventListener("click",()=>{ selectItem("dashboard"); });
 
   populateTopNetworkSelect();
   wireRiskModal();
-  setChain(state.chainKey); // initializes provider + renders
+  setChain(state.chainKey);
 }
 init();
 
+/* ===== Nav wiring (static sidebar present in DOM) ================== */
+function refreshOpenView(){
+  const active=document.querySelector(".sidebar .item.active")?.dataset?.view||"dashboard";
+  render(active);
+}
+function selectItem(v){$$(".sidebar .item").forEach(x=>x.classList.toggle("active",x.dataset.view===v));render(v);}
+$$(".sidebar .item").forEach(el=>el.onclick=()=>selectItem(el.dataset.view));
+selectItem("dashboard");
+
 /* ===== END ======================================================== */
 }); // DOMContentLoaded
+
+console.log("X-Wallet v1.5 loaded.");
