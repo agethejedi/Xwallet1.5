@@ -1,52 +1,113 @@
-+ const { ethers } = window;;
+const { ethers } = window;
 const XMTP = window.XMTP;
 
-// ---- CONFIG (EDIT) ----
+/* =========================
+   CONFIG
+   ========================= */
 const RPCS = {
   sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // <-- replace
-   mainnet: "https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73",
-    polygon: "https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73"
+  mainnet: "https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73",
+  polygon: "https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73"
 };
-const SAFE_SEND_URL = 'https://safesend-worker.agedotcom.workers.dev/check';
-// <-- replace or run stub
-// ---- SafeSend Integration ----
-async function runSafeSendCheck(provider, to) {
-  const chainMap = {
-    1: 'mainnet',
-    11155111: 'sepolia',
-    137: 'polygon'
-  };
 
-  const { chainId } = await provider.getNetwork();
-  const chain = chainMap[Number(chainId)] || 'sepolia';
+// If you’re using the plaintext Cloudflare Worker we set up, it should return:
+// { risk_score, block, reasons, risk_factors, ... }
+const SAFE_SEND_URL = 'https://safesend-worker.agedotcom.workers.dev/check'; // <-- replace if different
 
+/* =========================
+   SafeSend / Risk helpers
+   ========================= */
+
+// Build a simple panel if missing
+function ensureSafeSendPanel() {
+  if (!document.querySelector('#safesend-status')) {
+    const target = document.querySelector('#sendOut') || document.body;
+    const panel = document.createElement('div');
+    panel.id = 'safesend-status';
+    panel.style.marginTop = '8px';
+    target.parentElement.insertBefore(panel, target);
+  }
+}
+
+// Normalizer: supports legacy {score, findings} or new {risk_score, block, reasons, risk_factors}
+function normalizeSafeSendResponse(j) {
+  // New worker format
+  if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors) {
+    const score = typeof j.risk_score === 'number' ? j.risk_score : 10;
+    const findings = Array.isArray(j.risk_factors) && j.risk_factors.length
+      ? j.risk_factors
+      : Array.isArray(j.reasons) ? j.reasons.map(code => ({
+          OFAC: 'OFAC/sanctions list match',
+          BAD_LIST: 'Internal bad list match',
+          BAD_ENS: 'Flagged ENS name'
+        }[code] || code)) : [];
+    const blocked = !!j.block || score >= 100 || (j.reasons && j.reasons.length > 0);
+    return { score, findings, blocked, raw: j };
+  }
+  // Legacy format
+  if (typeof j?.score === 'number') {
+    const score = j.score;
+    const findings = Array.isArray(j.findings) ? j.findings : [];
+    const blocked = !!j.block || score >= 70; // your prior threshold
+    return { score, findings, blocked, raw: j };
+  }
+  // Fallback
+  return { score: 10, findings: [], blocked: false, raw: j || {} };
+}
+
+// Calls your SafeSend/Worker and returns normalized result
+async function fetchSafeSend(to, chain = 'sepolia') {
   const u = new URL(SAFE_SEND_URL);
+  // Support either ?chain or ?network param names, Worker will ignore unknowns
   u.searchParams.set('address', to);
   u.searchParams.set('chain', chain);
+  u.searchParams.set('network', chain);
 
-  const r = await fetch(u.toString());
+  const r = await fetch(u.toString(), { method: 'GET' });
   if (!r.ok) throw new Error(`SafeSend ${r.status}`);
-  return r.json(); // -> { score, findings, ... }
+  const j = await r.json();
+  return normalizeSafeSendResponse(j);
 }
 
-// Simple UI helper to display SafeSend results
+// Simple UI helper to display SafeSend results (now includes factor list)
 function renderSafeSendPanel(check) {
+  ensureSafeSendPanel();
   const panel = document.querySelector('#safesend-status');
   if (!panel) return;
+
+  const bg = (check.score >= 100 || check.blocked) ? '#f87171'
+           : (check.score >= 70) ? '#facc15'
+           : '#4ade80';
+
+  const listHtml = (check.findings || []).map(f => `<li>${escapeHtml(String(f))}</li>`).join('') || '<li>No elevated factors detected</li>';
+
   panel.innerHTML = `
-    <div style="padding:8px;border-radius:8px;background:${
-      check.score >= 70 ? '#f87171' : check.score >= 40 ? '#facc15' : '#4ade80'
-    };color:black;">
-      <strong>SafeSend Score:</strong> ${check.score}<br/>
-      <strong>Findings:</strong> ${check.findings.join('; ')}
-    </div>`;
+    <div style="padding:10px;border-radius:8px;background:${bg};color:#111;">
+      <div style="font-weight:700;margin-bottom:4px;">SafeSend Result</div>
+      <div><strong>Score:</strong> ${check.score}</div>
+      <div style="margin-top:6px;"><strong>Risk factors</strong></div>
+      <ul style="margin:4px 0 0 18px;padding:0;">${listHtml}</ul>
+      ${check.blocked ? `<div style="margin-top:8px;font-weight:700;">Blocked by policy</div>` : ''}
+    </div>
+  `;
 }
 
-// helpers
+function escapeHtml(s) {
+  return (s + '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/* =========================
+   DOM helpers
+   ========================= */
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 
-// AES-GCM + PBKDF2 vault
+/* =========================
+   AES-GCM + PBKDF2 vault
+   ========================= */
 async function aesEncrypt(password, plaintext){
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -65,7 +126,9 @@ async function aesDecrypt(password, payload){
   return dec.decode(pt);
 }
 
-// state/storage/lock
+/* =========================
+   state/storage/lock
+   ========================= */
 const state = { unlocked:false, wallet:null, xmtp:null, provider:null, signer:null, inactivityTimer:null };
 const STORAGE_KEY = 'xwallet_vault_v1.2';
 function getVault(){ const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
@@ -73,7 +136,9 @@ function setVault(v){ localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); }
 function lock(){ state.unlocked=false; state.wallet=null; state.xmtp=null; state.provider=null; state.signer=null; $('#lockState').textContent='Locked'; }
 function scheduleAutoLock(){ clearTimeout(state.inactivityTimer); state.inactivityTimer = setTimeout(()=>{ lock(); showLock(); }, 10*60*1000); }
 
-// views
+/* =========================
+   Views
+   ========================= */
 const VIEWS = {
   dashboard(){ return `
     <div class="label">Welcome</div>
@@ -116,8 +181,13 @@ const VIEWS = {
       <div class="label">Send ETH (Sepolia)</div>
       <div class="small">Before each send, SafeSend will evaluate the recipient address and block if high risk.</div>
       <hr class="sep"/>
-      <div class="send-form"><input id="sendTo" placeholder="0x recipient address"/><input id="sendAmt" placeholder="Amount (ETH)"/><button class="btn primary" id="doSend">Send</button></div>
+      <div class="send-form">
+        <input id="sendTo" placeholder="0x recipient address"/>
+        <input id="sendAmt" placeholder="Amount (ETH)"/>
+        <button class="btn primary" id="doSend">Send</button>
+      </div>
       <div id="sendOut" class="small" style="margin-top:8px"></div>
+      <div id="safesend-status" style="margin-top:8px"></div>
       <div style="height:12px"></div>
       <div class="label">Recent transactions (testnet)</div>
       <div id="txList" class="small">—</div>
@@ -170,32 +240,54 @@ const VIEWS = {
 function render(view){
   const root = $('#view');
   root.innerHTML = VIEWS[view]();
+
   if (view==='dashboard'){
     $('#gen').onclick = ()=>{ $('#mnemonic').value = ethers.Mnemonic.fromEntropy(ethers.randomBytes(16)).phrase; };
     $('#save').onclick = async ()=>{ const m = $('#mnemonic').value.trim(); const pw = $('#password').value; if (!m||!pw) return alert('Mnemonic+password required'); const enc = await aesEncrypt(pw,m); setVault({version:1,enc}); alert('Vault saved. Click Unlock.'); };
     $('#doImport').onclick = async ()=>{ const m = $('#mnemonicIn').value.trim(); const pw = $('#passwordIn').value; if (!m||!pw) return alert('Mnemonic+password required'); const enc = await aesEncrypt(pw,m); setVault({version:1,enc}); alert('Imported & saved. Click Unlock.'); };
   }
+
   if (view==='wallets'){
     $('#copyAddr').onclick = async ()=>{ if(!state.wallet) return; await navigator.clipboard.writeText(state.wallet.address); $('#out').textContent='Address copied.'; };
     $('#showPK').onclick = async ()=>{ if(!state.wallet) return; const pk = await state.wallet.getPublicKey(); $('#out').textContent='Public key: ' + pk; };
   }
+
   if (view==='send'){
     $('#doSend').onclick = async ()=>{
-      const to = $('#sendTo').value.trim(); const amt = $('#sendAmt').value.trim();
+      const to = $('#sendTo').value.trim();
+      const amt = $('#sendAmt').value.trim();
       if (!ethers.isAddress(to)) return alert('Invalid address');
       const n = Number(amt); if (isNaN(n) || n<=0) return alert('Invalid amount');
+
       $('#sendOut').textContent='Checking SafeSend...';
       try{
-        const check = await fetchSafeSend(to);
-        if (check.score && check.score > 70) return $('#sendOut').textContent = 'Blocked by SafeSend: high risk ('+check.score+')';
+        // Always treat this flow as Sepolia (your UI says Sepolia)
+        const check = await fetchSafeSend(to, 'sepolia');
+        renderSafeSendPanel(check);
+
+        // Policy: block if Cloudflare lists hit (score 100 / blocked)
+        if (check.blocked || check.score >= 100) {
+          $('#sendOut').textContent = `Blocked by policy (score ${check.score}).`;
+          return;
+        }
+
+        // Legacy threshold fallback (kept from your original code)
+        if (check.score > 70) {
+          $('#sendOut').textContent = `Blocked by SafeSend: high risk (${check.score}).`;
+          return;
+        }
+
         $('#sendOut').textContent='SafeSend OK — preparing tx...';
         const res = await sendEth({ to, amountEth: n, chain:'sep' });
         $('#sendOut').innerHTML = 'Broadcasted: <a target=_blank href="https://sepolia.etherscan.io/tx/'+res.hash+'">'+res.hash+'</a>';
         await loadRecentTxs();
-      }catch(e){ $('#sendOut').textContent = 'Error: ' + (e.message||e); }
+      }catch(e){
+        $('#sendOut').textContent = 'Error: ' + (e.message||e);
+      }
     };
     loadRecentTxs();
   }
+
   if (view==='messaging'){
     $('#msgStatus').textContent = 'Status: ' + (state.xmtp ? 'Connected' : 'Disconnected (unlock first)');
     $('#send').onclick = async ()=>{
@@ -217,11 +309,17 @@ function render(view){
       })();
     }
   }
+
   if (view==='markets'){ renderMarkets(); }
-  if (view==='settings'){ $('#wipe').onclick = ()=>{ if(confirm('Delete the local encrypted vault?')){ localStorage.removeItem(STORAGE_KEY); lock(); alert('Deleted.'); } }; }
+
+  if (view==='settings'){
+    $('#wipe').onclick = ()=>{ if(confirm('Delete the local encrypted vault?')){ localStorage.removeItem(STORAGE_KEY); lock(); alert('Deleted.'); } };
+  }
 }
 
-// lock modal
+/* =========================
+   Lock modal
+   ========================= */
 function showLock(){ $('#lockModal').classList.add('active'); $('#unlockPassword').value=''; $('#unlockMsg').textContent=''; }
 function hideLock(){ $('#lockModal').classList.remove('active'); }
 $('#btnLock').onclick = ()=>{ lock(); alert('Locked.'); };
@@ -239,19 +337,20 @@ $('#doUnlock').onclick = async ()=>{
   }catch(e){ console.error(e); $('#unlockMsg').textContent = 'Wrong password (or corrupted vault).'; }
 };
 
-// nav
+/* =========================
+   Nav
+   ========================= */
 function selectItem(view){ $$('.sidebar .item').forEach(x=>x.classList.toggle('active', x.dataset.view===view)); render(view); }
 $$('.sidebar .item').forEach(el=> el.onclick=()=> selectItem(el.dataset.view));
 selectItem('dashboard');
 
-// landing CTA
+// Landing CTAs
 $('#ctaApp')?.addEventListener('click', ()=> window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
 $('#ctaLearn')?.addEventListener('click', ()=> window.scrollTo({ top: window.innerHeight, behavior: 'smooth' }));
 
-// SafeSend backend call
-
-
-// Provider + send
+/* =========================
+   Provider + send
+   ========================= */
 async function getProvider(chain='sep'){ if (!RPCS[chain]) throw new Error('RPC not configured for ' + chain); return new ethers.JsonRpcProvider(RPCS[chain]); }
 async function connectWalletToProvider(chain='sep'){ if (!state.wallet) throw new Error('Unlock first'); const provider = await getProvider(chain); state.provider = provider; state.signer = state.wallet.connect(provider); return state.signer; }
 async function sendEth({ to, amountEth, chain='sep' }){
@@ -268,7 +367,9 @@ async function sendEth({ to, amountEth, chain='sep' }){
   return { hash: sent.hash, receipt: sent };
 }
 
-// recent txs
+/* =========================
+   recent txs
+   ========================= */
 async function loadRecentTxs(){
   try{
     if (!state.wallet || !state.provider) return;
@@ -284,7 +385,9 @@ async function loadRecentTxs(){
   }catch(e){ console.warn(e); }
 }
 
-// markets
+/* =========================
+   markets
+   ========================= */
 async function fetchMarket(id){
   try{
     const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=1&interval=minute`);
