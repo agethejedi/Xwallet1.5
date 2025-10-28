@@ -12,7 +12,7 @@ const RPCS = {
 
 // If you’re using the plaintext Cloudflare Worker we set up, it should return:
 // { risk_score, block, reasons, risk_factors, ... }
-const SAFE_SEND_URL = 'https://safesend-worker.agedotcom.workers.dev/check'; // <-- replace if different
+const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev'; // <-- oreplace if different
 
 /* =========================
    SafeSend / Risk helpers
