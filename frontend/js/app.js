@@ -1,3 +1,4 @@
+/* X-Wallet Frontend App JS — v1.5.3 UI block-ready */
 const { ethers } = window;
 const XMTP = window.XMTP;
 
@@ -5,42 +6,32 @@ const XMTP = window.XMTP;
    CONFIG
    ========================= */
 const RPCS = {
-  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // <-- replace
+  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // <-- replace if needed
   mainnet: "https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73",
   polygon: "https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73"
 };
 
-// If you’re using the plaintext Cloudflare Worker we set up, it should return:
-// { risk_score, block, reasons, risk_factors, ... }
-const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev'; // <-- oreplace if different
+// Live SafeSend / Risk worker (plaintext lists + block)
+const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev/check';
 
 /* =========================
    SafeSend / Risk helpers
    ========================= */
 
-// Build a simple panel if missing
-function ensureSafeSendPanel() {
-  if (!document.querySelector('#safesend-status')) {
-    const target = document.querySelector('#sendOut') || document.body;
-    const panel = document.createElement('div');
-    panel.id = 'safesend-status';
-    panel.style.marginTop = '8px';
-    target.parentElement.insertBefore(panel, target);
-  }
-}
-
-// Normalizer: supports legacy {score, findings} or new {risk_score, block, reasons, risk_factors}
+// Support both the new worker schema and any old SafeSend schema
 function normalizeSafeSendResponse(j) {
   // New worker format
   if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors) {
     const score = typeof j.risk_score === 'number' ? j.risk_score : 10;
     const findings = Array.isArray(j.risk_factors) && j.risk_factors.length
       ? j.risk_factors
-      : Array.isArray(j.reasons) ? j.reasons.map(code => ({
-          OFAC: 'OFAC/sanctions list match',
-          BAD_LIST: 'Internal bad list match',
-          BAD_ENS: 'Flagged ENS name'
-        }[code] || code)) : [];
+      : Array.isArray(j.reasons)
+        ? j.reasons.map(code => ({
+            OFAC: 'OFAC/sanctions list match',
+            BAD_LIST: 'Internal bad list match',
+            BAD_ENS: 'Flagged ENS name'
+          }[code] || code))
+        : [];
     const blocked = !!j.block || score >= 100 || (j.reasons && j.reasons.length > 0);
     return { score, findings, blocked, raw: j };
   }
@@ -48,28 +39,47 @@ function normalizeSafeSendResponse(j) {
   if (typeof j?.score === 'number') {
     const score = j.score;
     const findings = Array.isArray(j.findings) ? j.findings : [];
-    const blocked = !!j.block || score >= 70; // your prior threshold
+    const blocked = !!j.block || score >= 70;
     return { score, findings, blocked, raw: j };
   }
   // Fallback
   return { score: 10, findings: [], blocked: false, raw: j || {} };
 }
 
-// Calls your SafeSend/Worker and returns normalized result
+// Always send address + no cache; store last result for global clamp
 async function fetchSafeSend(to, chain = 'sepolia') {
   const u = new URL(SAFE_SEND_URL);
-  // Support either ?chain or ?network param names, Worker will ignore unknowns
-  u.searchParams.set('address', to);
-  u.searchParams.set('chain', chain);
+  u.searchParams.set('address', String(to).toLowerCase());
   u.searchParams.set('network', chain);
+  u.searchParams.set('_', Date.now()); // cache buster
 
-  const r = await fetch(u.toString(), { method: 'GET' });
+  const r = await fetch(u.toString(), {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache'
+    }
+  });
   if (!r.ok) throw new Error(`SafeSend ${r.status}`);
   const j = await r.json();
-  return normalizeSafeSendResponse(j);
+  const normalized = normalizeSafeSendResponse(j);
+  // expose for global clamp
+  window.__lastSafeSendCheck = normalized;
+  return normalized;
 }
 
-// Simple UI helper to display SafeSend results (now includes factor list)
+// Risk panel under the Send section
+function ensureSafeSendPanel() {
+  if (!document.querySelector('#safesend-status')) {
+    const host = document.querySelector('#sendOut') || document.body;
+    const panel = document.createElement('div');
+    panel.id = 'safesend-status';
+    panel.style.marginTop = '8px';
+    host.parentElement?.insertBefore(panel, host.nextSibling);
+  }
+}
+
 function renderSafeSendPanel(check) {
   ensureSafeSendPanel();
   const panel = document.querySelector('#safesend-status');
@@ -87,17 +97,33 @@ function renderSafeSendPanel(check) {
       <div><strong>Score:</strong> ${check.score}</div>
       <div style="margin-top:6px;"><strong>Risk factors</strong></div>
       <ul style="margin:4px 0 0 18px;padding:0;">${listHtml}</ul>
-      ${check.blocked ? `<div style="margin-top:8px;font-weight:700;">Blocked by policy</div>` : ''}
+      ${check.blocked || check.score >= 100 ? `<div style="margin-top:8px;font-weight:700;">Blocked by policy</div>` : ''}
     </div>
   `;
 }
 
-function escapeHtml(s) {
-  return (s + '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function escapeHtml(s){
+  return (s + '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// Defensive clamp: if any “complete transaction” UI exists elsewhere, disable it on block
+window.addEventListener('click', (e) => {
+  const t = e.target;
+  if (!t) return;
+  if (t.matches('#completeTransaction, .btn-complete, [data-role="complete-transaction"]')) {
+    const last = window.__lastSafeSendCheck;
+    if (last && (last.blocked || last.score >= 100)) {
+      e.preventDefault(); e.stopPropagation();
+      t.disabled = true;
+      t.textContent = 'Blocked';
+      const panel = document.querySelector('#safesend-status');
+      if (panel) panel.insertAdjacentHTML('beforeend',
+        `<div style="margin-top:8px;padding:8px;border-radius:6px;background:#f87171;color:#111;font-weight:600">
+           Address blocked by policy. Reason(s): ${(last.findings||[]).join(', ') || 'High risk'}
+         </div>`);
+    }
+  }
+}, true);
 
 /* =========================
    DOM helpers
@@ -261,17 +287,15 @@ function render(view){
 
       $('#sendOut').textContent='Checking SafeSend...';
       try{
-        // Always treat this flow as Sepolia (your UI says Sepolia)
         const check = await fetchSafeSend(to, 'sepolia');
         renderSafeSendPanel(check);
 
-        // Policy: block if Cloudflare lists hit (score 100 / blocked)
+        // === HARD POLICY GATE ===
         if (check.blocked || check.score >= 100) {
           $('#sendOut').textContent = `Blocked by policy (score ${check.score}).`;
-          return;
+          return; // stop before tx build/legacy modal
         }
-
-        // Legacy threshold fallback (kept from your original code)
+        // Legacy fallback (kept from prior builds)
         if (check.score > 70) {
           $('#sendOut').textContent = `Blocked by SafeSend: high risk (${check.score}).`;
           return;
@@ -368,7 +392,7 @@ async function sendEth({ to, amountEth, chain='sep' }){
 }
 
 /* =========================
-   recent txs
+   Recent txs
    ========================= */
 async function loadRecentTxs(){
   try{
@@ -386,7 +410,7 @@ async function loadRecentTxs(){
 }
 
 /* =========================
-   markets
+   Markets
    ========================= */
 async function fetchMarket(id){
   try{
