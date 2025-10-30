@@ -1,35 +1,35 @@
-// X-Wallet frontend app.js v1.5.7 — CSP-friendly, modal always, hard block ≥90
+// X-Wallet frontend app.js v1.5.8 — CSP-friendly, modal always, enforced hard block ≥90
 
-// ESM imports (no inline scripts to satisfy CSP)
+// --- ESM imports (no inline scripts to satisfy CSP) ---
 import { ethers } from 'https://esm.sh/ethers@6.13.2';
 import { Client as XMTPClient } from 'https://esm.sh/@xmtp/xmtp-js@11.5.0';
 
-// expose for any legacy references
+// expose (if any legacy code references window.*)
 window.ethers = ethers;
 window.XMTP = { Client: XMTPClient };
 
-/* =========================
-   CONFIG
-   ========================= */
+// =======================
+// CONFIG
+// =======================
 const RPCS = {
   sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // replace if needed
   mainnet: 'https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73',
   polygon: 'https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73'
 };
 
-// Cloudflare Worker (CORS enabled)
+// Cloudflare Worker endpoint (CORS enabled)
 const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev/check';
 
-/* =========================
-   POLICY
-   ========================= */
-const HARD_BLOCK_THRESHOLD = 90; // hard block for scores >= 90
+// =======================
+/* POLICY */
+// =======================
+const HARD_BLOCK_THRESHOLD = 90; // >= 90 => hard block
 const BLOCK_MSG =
   "Transfers to the wallet address your submitted are currently being blocked. RiskXLabs believes that transactions with the wallet address represent substantial risk or that the address has been sanctioned by regulatory bodies.";
 
-/* =========================
-   RISK HELPERS
-   ========================= */
+// =======================
+// RISK HELPERS
+// =======================
 function normalizeSafeSendResponse(j) {
   // New worker format
   if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors) {
@@ -77,9 +77,9 @@ async function fetchSafeSend(to, chain = 'sepolia') {
   return norm;
 }
 
-/* =========================
-   MODAL (ALWAYS SHOWN)
-   ========================= */
+// =======================
+// MODAL (ALWAYS SHOWN)
+// =======================
 const modal = {
   get el() { return document.getElementById('riskModal'); },
   q(sel) { return this.el?.querySelector(sel); },
@@ -108,38 +108,62 @@ const modal = {
       proceed.style.pointerEvents = 'none';
       proceed.textContent = 'Complete transaction';
       proceed.removeAttribute('data-blocked');
+      proceed.style.opacity = ''; // reset
     }
     if (warn) {
       warn.style.display = 'none';
       warn.innerHTML = '';
     }
 
-    // Decide hard block
+    // Determine policy hard block
     const isHardBlocked = (check.blocked || check.score >= HARD_BLOCK_THRESHOLD);
     console.log('[SafeSend modal]', { score: check.score, blocked: check.blocked, policyHardBlock: isHardBlocked });
 
+    // HARD BLOCK branch
     if (isHardBlocked) {
+      console.log('[SafeSend] Hard block triggered.');
       if (warn) {
         warn.style.display = 'block';
-        warn.innerHTML = `<div style="color:#fff"><strong>Blocked by policy.</strong> ${escapeHtml(BLOCK_MSG)}</div>`;
+        warn.innerHTML = `
+          <div style="
+            color:#fff;
+            background:#3b0d0d;
+            border:1px solid #ff4d4d;
+            border-radius:6px;
+            padding:10px;
+            margin-top:10px;
+          ">
+            <strong>🚫 Blocked by Policy</strong><br><br>
+            ${escapeHtml(BLOCK_MSG)}
+          </div>`;
       }
       if (proceed) {
         proceed.disabled = true;
         proceed.setAttribute('aria-disabled', 'true');
         proceed.style.pointerEvents = 'none';
         proceed.textContent = 'Blocked';
+        proceed.style.opacity = '0.6';
         proceed.setAttribute('data-blocked', '1');
       }
+      this.open(); // ensure visible state after injection
       return; // cannot proceed
     }
 
-    // High risk acknowledge (70–89)
+    // HIGH RISK (70–89): require acknowledgement
     if (check.score >= 70) {
       if (warn) {
         warn.style.display = 'block';
         warn.innerHTML = `
-          <div style="color:#fff">
-            This transaction has been identified as high-risk. You must acknowledge to proceed.
+          <div style="
+            color:#fff;
+            background:#3f2d00;
+            border:1px solid #f7b955;
+            border-radius:6px;
+            padding:10px;
+            margin-top:10px;
+          ">
+            <strong>⚠️ High-risk transaction</strong><br><br>
+            You must acknowledge to proceed.
             <label class="checkbox" style="display:block;margin-top:8px">
               <input id="riskAgree" type="checkbox"/> <span>I understand the risks</span>
             </label>
@@ -152,16 +176,18 @@ const modal = {
           proceed.disabled = !ok;
           proceed.setAttribute('aria-disabled', String(!ok));
           proceed.style.pointerEvents = ok ? 'auto' : 'none';
+          proceed.style.opacity = ok ? '' : '0.6';
         });
       }
       return;
     }
 
-    // Low risk (<70): can proceed immediately
+    // LOW RISK (<70): modal shows for awareness; can proceed immediately
     if (proceed) {
       proceed.disabled = false;
       proceed.setAttribute('aria-disabled', 'false');
       proceed.style.pointerEvents = 'auto';
+      proceed.style.opacity = '';
     }
   }
 };
@@ -186,12 +212,13 @@ function showRiskModal(check) {
       modal.hide();
     };
 
-    // Hard block path: proceed stays disabled and flagged
+    // Guard: if hard-blocked, proceed remains disabled and unclickable
     if (proceed) {
       proceed.onclick = () => {
         if (proceed.hasAttribute('data-blocked') || proceed.disabled ||
             proceed.getAttribute('aria-disabled') === 'true') return;
-        cleanup(); resolve(true); // user explicitly continues
+        cleanup();
+        resolve(true); // user explicitly continues
       };
     }
     if (cancel) cancel.onclick = () => { cleanup(); resolve(false); };
@@ -199,21 +226,24 @@ function showRiskModal(check) {
   });
 }
 
-/* =========================
-   DOM HELPERS
-   ========================= */
+// =======================
+// DOM HELPERS
+// =======================
 const $  = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 
-/* =========================
-   AES-GCM + PBKDF2 VAULT
-   ========================= */
+// =======================
+// AES-GCM + PBKDF2 VAULT
+// =======================
 async function aesEncrypt(password, plaintext) {
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const km = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+  );
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext)));
   return { ct: Array.from(ct), iv: Array.from(iv), salt: Array.from(salt) };
 }
@@ -221,14 +251,17 @@ async function aesDecrypt(password, payload) {
   const dec = new TextDecoder();
   const { ct, iv, salt } = payload;
   const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new Uint8Array(salt), iterations: 100000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: new Uint8Array(salt), iterations: 100000, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+  );
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(iv) }, key, new Uint8Array(ct));
   return dec.decode(pt);
 }
 
-/* =========================
-   STATE / LOCK
-   ========================= */
+// =======================
+// STATE / LOCK
+// =======================
 const state = { unlocked: false, wallet: null, xmtp: null, provider: null, signer: null, inactivityTimer: null };
 const STORAGE_KEY = 'xwallet_vault_v1.2';
 function getVault() { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
@@ -236,9 +269,9 @@ function setVault(v) { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); }
 function lock() { state.unlocked = false; state.wallet = null; state.xmtp = null; state.provider = null; state.signer = null; $('#lockState').textContent = 'Locked'; }
 function scheduleAutoLock() { clearTimeout(state.inactivityTimer); state.inactivityTimer = setTimeout(() => { lock(); showLock(); }, 10 * 60 * 1000); }
 
-/* =========================
-   VIEWS
-   ========================= */
+// =======================
+// VIEWS
+// =======================
 const VIEWS = {
   dashboard() {
     return `
@@ -356,9 +389,9 @@ function render(view) {
   }
 }
 
-/* =========================
-   LOCK MODAL / NAV
-   ========================= */
+// =======================
+// LOCK MODAL / NAV
+// =======================
 function showLock() { $('#lockModal').classList.add('active'); $('#unlockPassword').value = ''; $('#unlockMsg').textContent = ''; }
 function hideLock() { $('#lockModal').classList.remove('active'); }
 $('#btnLock')?.addEventListener('click', () => { lock(); alert('Locked.'); });
@@ -385,17 +418,29 @@ function selectItem(view) { $$('.sidebar .item').forEach(x => x.classList.toggle
 $$('.sidebar .item').forEach(el => el.addEventListener('click', () => selectItem(el.dataset.view)));
 selectItem('dashboard');
 
-/* =========================
-   PROVIDER + SEND
-   ========================= */
-async function getProvider(chain = 'sep') { if (!RPCS[chain]) throw new Error('RPC not configured for ' + chain); return new ethers.JsonRpcProvider(RPCS[chain]); }
-async function connectWalletToProvider(chain = 'sep') { if (!state.wallet) throw new Error('Unlock first'); const provider = await getProvider(chain); state.provider = provider; state.signer = state.wallet.connect(provider); return state.signer; }
+// =======================
+// PROVIDER + SEND
+// =======================
+async function getProvider(chain = 'sep') {
+  if (!RPCS[chain]) throw new Error('RPC not configured for ' + chain);
+  return new ethers.JsonRpcProvider(RPCS[chain]);
+}
+async function connectWalletToProvider(chain = 'sep') {
+  if (!state.wallet) throw new Error('Unlock first');
+  const provider = await getProvider(chain);
+  state.provider = provider;
+  state.signer = state.wallet.connect(provider);
+  return state.signer;
+}
 async function sendEth({ to, amountEth, chain = 'sep' }) {
   if (!state.signer) await connectWalletToProvider(chain);
   const tx = { to, value: ethers.parseEther(String(amountEth)) };
   try {
     const fee = await state.signer.getFeeData();
-    if (fee?.maxFeePerGas) { tx.maxFeePerGas = fee.maxFeePerGas; tx.maxPriorityFeePerGas = fee.maxPriorityFeePerGas; }
+    if (fee?.maxFeePerGas) {
+      tx.maxFeePerGas = fee.maxFeePerGas;
+      tx.maxPriorityFeePerGas = fee.maxPriorityFeePerGas;
+    }
     const est = await state.signer.estimateGas(tx);
     tx.gasLimit = est;
   } catch (e) { console.warn('Gas estimation failed', e); }
