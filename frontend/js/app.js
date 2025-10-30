@@ -1,26 +1,19 @@
-/* X-Wallet Frontend App JS — v1.5.3 UI block-ready */
+// X-Wallet frontend app.js v1.5.3 — policy block enabled
+console.log('X-Wallet frontend app.js v1.5.3 — policy block enabled');
+
 const { ethers } = window;
 const XMTP = window.XMTP;
 
-/* =========================
-   CONFIG
-   ========================= */
+/* ============ CONFIG ============ */
 const RPCS = {
-  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // <-- replace if needed
+  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // replace if needed
   mainnet: "https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73",
   polygon: "https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73"
 };
-
-// Live SafeSend / Risk worker (plaintext lists + block)
 const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev/check';
 
-/* =========================
-   SafeSend / Risk helpers
-   ========================= */
-
-// Support both the new worker schema and any old SafeSend schema
+/* ============ SafeSend helpers ============ */
 function normalizeSafeSendResponse(j) {
-  // New worker format
   if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors) {
     const score = typeof j.risk_score === 'number' ? j.risk_score : 10;
     const findings = Array.isArray(j.risk_factors) && j.risk_factors.length
@@ -35,41 +28,34 @@ function normalizeSafeSendResponse(j) {
     const blocked = !!j.block || score >= 100 || (j.reasons && j.reasons.length > 0);
     return { score, findings, blocked, raw: j };
   }
-  // Legacy format
   if (typeof j?.score === 'number') {
     const score = j.score;
     const findings = Array.isArray(j.findings) ? j.findings : [];
     const blocked = !!j.block || score >= 70;
     return { score, findings, blocked, raw: j };
   }
-  // Fallback
   return { score: 10, findings: [], blocked: false, raw: j || {} };
 }
 
-// Always send address + no cache; store last result for global clamp
 async function fetchSafeSend(to, chain = 'sepolia') {
   const u = new URL(SAFE_SEND_URL);
   u.searchParams.set('address', String(to).toLowerCase());
   u.searchParams.set('network', chain);
-  u.searchParams.set('_', Date.now()); // cache buster
+  u.searchParams.set('_', Date.now());
 
   const r = await fetch(u.toString(), {
     method: 'GET',
     cache: 'no-store',
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Pragma': 'no-cache'
-    }
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache' }
   });
   if (!r.ok) throw new Error(`SafeSend ${r.status}`);
   const j = await r.json();
+  console.log('SafeSend RAW:', j);
   const normalized = normalizeSafeSendResponse(j);
-  // expose for global clamp
-  window.__lastSafeSendCheck = normalized;
+  window.__lastSafeSendCheck = normalized; // for defensive clamps
   return normalized;
 }
 
-// Risk panel under the Send section
 function ensureSafeSendPanel() {
   if (!document.querySelector('#safesend-status')) {
     const host = document.querySelector('#sendOut') || document.body;
@@ -78,6 +64,10 @@ function ensureSafeSendPanel() {
     panel.style.marginTop = '8px';
     host.parentElement?.insertBefore(panel, host.nextSibling);
   }
+}
+
+function escapeHtml(s){
+  return (s + '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function renderSafeSendPanel(check) {
@@ -102,11 +92,24 @@ function renderSafeSendPanel(check) {
   `;
 }
 
-function escapeHtml(s){
-  return (s + '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+/* Defensive: kill legacy modal if it appears */
+const killLegacyModal = () => {
+  const modal = document.querySelector('.safesend-modal,.risk-review-modal,#safesend-modal');
+  if (!modal) return;
+  const last = window.__lastSafeSendCheck;
+  const complete = modal.querySelector('button.primary, .complete, [data-action="complete"]');
+  const msg = modal.querySelector('.risk-message, .status, .note');
+  if (last && (last.blocked || last.score >= 100)) {
+    if (complete) { complete.disabled = true; complete.textContent = 'Blocked'; }
+    if (msg) msg.textContent = 'Blocked by policy (OFAC/BAD list match).';
+    modal.classList.add('blocked');
+  } else {
+    modal.remove(); // remove legacy modal if not needed
+  }
+};
+new MutationObserver(() => killLegacyModal()).observe(document.documentElement, { childList: true, subtree: true });
 
-// Defensive clamp: if any “complete transaction” UI exists elsewhere, disable it on block
+/* Also clamp any “complete tx” buttons globally */
 window.addEventListener('click', (e) => {
   const t = e.target;
   if (!t) return;
@@ -114,8 +117,7 @@ window.addEventListener('click', (e) => {
     const last = window.__lastSafeSendCheck;
     if (last && (last.blocked || last.score >= 100)) {
       e.preventDefault(); e.stopPropagation();
-      t.disabled = true;
-      t.textContent = 'Blocked';
+      t.disabled = true; t.textContent = 'Blocked';
       const panel = document.querySelector('#safesend-status');
       if (panel) panel.insertAdjacentHTML('beforeend',
         `<div style="margin-top:8px;padding:8px;border-radius:6px;background:#f87171;color:#111;font-weight:600">
@@ -125,15 +127,11 @@ window.addEventListener('click', (e) => {
   }
 }, true);
 
-/* =========================
-   DOM helpers
-   ========================= */
+/* ============ DOM helpers ============ */
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 
-/* =========================
-   AES-GCM + PBKDF2 vault
-   ========================= */
+/* ============ Vault (AES-GCM) ============ */
 async function aesEncrypt(password, plaintext){
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -152,9 +150,7 @@ async function aesDecrypt(password, payload){
   return dec.decode(pt);
 }
 
-/* =========================
-   state/storage/lock
-   ========================= */
+/* ============ State/lock ============ */
 const state = { unlocked:false, wallet:null, xmtp:null, provider:null, signer:null, inactivityTimer:null };
 const STORAGE_KEY = 'xwallet_vault_v1.2';
 function getVault(){ const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
@@ -162,9 +158,7 @@ function setVault(v){ localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); }
 function lock(){ state.unlocked=false; state.wallet=null; state.xmtp=null; state.provider=null; state.signer=null; $('#lockState').textContent='Locked'; }
 function scheduleAutoLock(){ clearTimeout(state.inactivityTimer); state.inactivityTimer = setTimeout(()=>{ lock(); showLock(); }, 10*60*1000); }
 
-/* =========================
-   Views
-   ========================= */
+/* ============ Views ============ */
 const VIEWS = {
   dashboard(){ return `
     <div class="label">Welcome</div>
@@ -295,7 +289,7 @@ function render(view){
           $('#sendOut').textContent = `Blocked by policy (score ${check.score}).`;
           return; // stop before tx build/legacy modal
         }
-        // Legacy fallback (kept from prior builds)
+        // optional legacy fallback
         if (check.score > 70) {
           $('#sendOut').textContent = `Blocked by SafeSend: high risk (${check.score}).`;
           return;
@@ -341,9 +335,7 @@ function render(view){
   }
 }
 
-/* =========================
-   Lock modal
-   ========================= */
+/* ============ Lock modal ============ */
 function showLock(){ $('#lockModal').classList.add('active'); $('#unlockPassword').value=''; $('#unlockMsg').textContent=''; }
 function hideLock(){ $('#lockModal').classList.remove('active'); }
 $('#btnLock').onclick = ()=>{ lock(); alert('Locked.'); };
@@ -361,9 +353,7 @@ $('#doUnlock').onclick = async ()=>{
   }catch(e){ console.error(e); $('#unlockMsg').textContent = 'Wrong password (or corrupted vault).'; }
 };
 
-/* =========================
-   Nav
-   ========================= */
+/* ============ Nav ============ */
 function selectItem(view){ $$('.sidebar .item').forEach(x=>x.classList.toggle('active', x.dataset.view===view)); render(view); }
 $$('.sidebar .item').forEach(el=> el.onclick=()=> selectItem(el.dataset.view));
 selectItem('dashboard');
@@ -372,9 +362,7 @@ selectItem('dashboard');
 $('#ctaApp')?.addEventListener('click', ()=> window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
 $('#ctaLearn')?.addEventListener('click', ()=> window.scrollTo({ top: window.innerHeight, behavior: 'smooth' }));
 
-/* =========================
-   Provider + send
-   ========================= */
+/* ============ Provider + send ============ */
 async function getProvider(chain='sep'){ if (!RPCS[chain]) throw new Error('RPC not configured for ' + chain); return new ethers.JsonRpcProvider(RPCS[chain]); }
 async function connectWalletToProvider(chain='sep'){ if (!state.wallet) throw new Error('Unlock first'); const provider = await getProvider(chain); state.provider = provider; state.signer = state.wallet.connect(provider); return state.signer; }
 async function sendEth({ to, amountEth, chain='sep' }){
@@ -391,9 +379,7 @@ async function sendEth({ to, amountEth, chain='sep' }){
   return { hash: sent.hash, receipt: sent };
 }
 
-/* =========================
-   Recent txs
-   ========================= */
+/* ============ Recent txs ============ */
 async function loadRecentTxs(){
   try{
     if (!state.wallet || !state.provider) return;
@@ -406,12 +392,10 @@ async function loadRecentTxs(){
     } else {
       const el = document.getElementById('txList'); if (el) el.textContent='Recent txs unavailable for this provider.';
     }
-  }catch(e){ console.warn(e); }
+  }catch(e){ console.warn('loadRecentTxs failed', e); }
 }
 
-/* =========================
-   Markets
-   ========================= */
+/* ============ Markets ============ */
 async function fetchMarket(id){
   try{
     const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=1&interval=minute`);
