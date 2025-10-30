@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>X-Wallet by RiskXLabs — Web v1.5.5</title>
+  <title>X-Wallet by RiskXLabs — Web v1.5.7</title>
 
-  <!-- Content Security Policy: allow esm.sh modules, your RPCs, Coingecko, and the SafeSend worker -->
+  <!-- CSP: no inline scripts; only self + esm.sh allowed for scripts -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self';
@@ -24,25 +24,11 @@
         ">
 
   <link rel="stylesheet" href="css/styles.css"/>
-
-  <!-- Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script type="module">
-    import { ethers } from 'https://esm.sh/ethers@6.13.2';
-    window.ethers = ethers;
-  </script>
-  <script type="module">
-    import { Client } from 'https://esm.sh/@xmtp/xmtp-js@11.5.0';
-    window.XMTP = { Client };
-  </script>
 </head>
 <body>
   <div class="container">
-    <!-- Top nav / brand -->
     <div class="nav">
-      <div class="brand">
-        <span class="x">X</span> X-Wallet <span class="small">by RiskXLabs</span>
-      </div>
+      <div class="brand"><span class="x">X</span> X-Wallet <span class="small">by RiskXLabs</span></div>
       <div class="cta flex">
         <label for="networkSelect" class="small">Network</label>
         <select id="networkSelect" style="min-width:180px"></select>
@@ -51,27 +37,17 @@
       </div>
     </div>
 
-    <!-- Hero -->
     <section class="hero card">
       <div>
         <h1>SafeSend™ risk checks. Control Center. Multi-wallet. On-chain sends.</h1>
-        <p class="lead">
-          Create or import a wallet, unlock with a password, manage multiple wallets,
-          view balances & recent activity, and send with SafeSend pre-checks.
-        </p>
-        <div class="flex">
-          <span class="badge">Multi-network</span>
-          <span class="badge">Control Center</span>
-          <span class="badge">SafeSend checks</span>
-        </div>
+        <p class="lead">Create/import a wallet, unlock with a password, manage wallets, view activity, and send with SafeSend pre-checks.</p>
+        <div class="flex"><span class="badge">Multi-network</span><span class="badge">Control Center</span><span class="badge">SafeSend checks</span></div>
       </div>
     </section>
 
-    <!-- App shell -->
     <section class="app">
       <div class="section-title">X-Wallet (Web)</div>
       <div class="app-grid">
-        <!-- Sidebar -->
         <div class="card sidebar">
           <div class="label">Navigation</div>
           <div class="item active" data-view="dashboard">Control Center</div>
@@ -79,19 +55,13 @@
           <div class="item" data-view="send">Send</div>
           <div class="item" data-view="settings">Settings</div>
           <hr class="sep"/>
-          <div class="flex">
-            <div id="lockState" class="badge">Locked</div>
-            <button class="btn" id="btnLock">Lock</button>
-            <button class="btn" id="btnUnlock">Unlock</button>
-          </div>
+          <div class="flex"><div id="lockState" class="badge">Locked</div><button class="btn" id="btnLock">Lock</button><button class="btn" id="btnUnlock">Unlock</button></div>
         </div>
-
-        <!-- Main view container -->
-        <div class="card" id="view"><!-- app.js renders here --></div>
+        <div class="card" id="view"></div>
       </div>
     </section>
 
-    <footer class="small" style="margin-top:18px;color:var(--muted)">© RiskXLabs — X-Wallet Web v1.5.5</footer>
+    <footer class="small" style="margin-top:18px;color:var(--muted)">© RiskXLabs — X-Wallet Web v1.5.7</footer>
   </div>
 
   <!-- Lock modal -->
@@ -102,15 +72,12 @@
       <div style="height:8px"></div>
       <input id="unlockPassword" type="password" placeholder="Password"/>
       <div style="height:8px"></div>
-      <div class="flex">
-        <button class="btn" id="doUnlock">Unlock</button>
-        <button class="btn ghost" id="cancelUnlock">Cancel</button>
-      </div>
+      <div class="flex"><button class="btn" id="doUnlock">Unlock</button><button class="btn ghost" id="cancelUnlock">Cancel</button></div>
       <div class="small" id="unlockMsg"></div>
     </div>
   </div>
 
-  <!-- SafeSend Risk Review Modal (always shown; app.js controls behavior) -->
+  <!-- Risk Review Modal -->
   <div id="riskModal" class="modal" aria-hidden="true">
     <div class="modal__panel">
       <div class="modal__header">
@@ -118,7 +85,6 @@
         <button id="riskClose" class="icon-btn" aria-label="Close">✕</button>
       </div>
 
-      <!-- Risk meter -->
       <div class="risk-meter">
         <div id="riskMeter" class="risk-meter__scale">
           <div id="riskMeterBar" class="risk-meter__bar" style="--score:0"></div>
@@ -127,10 +93,7 @@
         <div id="riskScoreText" class="risk-meter__score">Risk score: 0</div>
       </div>
 
-      <!-- Risk factors list -->
       <div id="riskFactors" class="risk-factors small">No notable factors.</div>
-
-      <!-- High-risk acknowledgment (70–89 only; hidden otherwise) -->
       <div id="riskWarning" class="risk-warning" style="display:none"></div>
 
       <div class="modal__actions">
@@ -140,7 +103,7 @@
     </div>
   </div>
 
-  <!-- App script (cache-busted to v1.5.5) -->
-  <script type="module" crossorigin src="js/app.js?v=1.5.5"></script>
+  <!-- Single module entry (no inline code) -->
+  <script type="module" crossorigin src="js/app.js?v=1.5.7"></script>
 </body>
 </html>
