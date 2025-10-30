@@ -1,26 +1,23 @@
-// X-Wallet frontend app.js v1.5.5 — modal always + hard block >=90
-console.log('X-Wallet app v1.5.5 — modal always + hard block >=90');
+// X-Wallet frontend app.js v1.5.6 — modal always + enforced hard block >=90
+console.log('X-Wallet app v1.5.6 — modal always + enforced hard block >=90');
 
 const { ethers } = window;
 const XMTP = window.XMTP;
 
 /* ===== CONFIG ===== */
 const RPCS = {
-  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // replace if needed
+  sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0',
   mainnet: 'https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73',
   polygon: 'https://polygon-mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73'
 };
-
-// Your Cloudflare Worker endpoint (with CORS enabled server-side)
 const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev/check';
 
-/* ===== Policy thresholds/messages ===== */
+/* ===== Policy ===== */
 const HARD_BLOCK_THRESHOLD = 90; // >= 90 => hard block
 const BLOCK_MSG = "Transfers to the wallet address your submitted are currently being blocked. RiskXLabs believes that transactions with the wallet address represent substantial risk or that the address has been sanctioned by regulatory bodies.";
 
 /* ===== Risk helpers ===== */
 function normalizeSafeSendResponse(j){
-  // Worker format
   if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors){
     const score = typeof j.risk_score === 'number' ? j.risk_score : 10;
     const findings = Array.isArray(j.risk_factors) && j.risk_factors.length
@@ -35,25 +32,23 @@ function normalizeSafeSendResponse(j){
     const blocked = !!j.block || (j.reasons && j.reasons.includes('OFAC')) || score >= 100;
     return { score, findings, blocked, raw:j };
   }
-  // Legacy format
   if (typeof j?.score === 'number'){
-    const score = j.score, findings = Array.isArray(j.findings) ? j.findings : [];
+    const score = j.score, findings = Array.isArray(j.findings)?j.findings:[];
     const blocked = !!j.block || score >= 70;
     return { score, findings, blocked, raw:j };
   }
-  return { score:10, findings:[], blocked:false, raw:j || {} };
+  return { score:10, findings:[], blocked:false, raw:j||{} };
 }
 
 async function fetchSafeSend(to, chain='sepolia'){
   const u = new URL(SAFE_SEND_URL);
   u.searchParams.set('address', String(to).toLowerCase());
   u.searchParams.set('network', chain);
-  u.searchParams.set('_', Date.now()); // cache-buster
-
+  u.searchParams.set('_', Date.now());
   const r = await fetch(u.toString(), {
     method: 'GET',
     cache: 'no-store',
-    headers: { 'Cache-Control':'no-store, no-cache, must-revalidate', 'Pragma':'no-cache' }
+    headers: {'Cache-Control':'no-store, no-cache, must-revalidate','Pragma':'no-cache'}
   });
   if (!r.ok) throw new Error(`SafeSend ${r.status}`);
   const j = await r.json();
@@ -62,95 +57,120 @@ async function fetchSafeSend(to, chain='sepolia'){
   return norm;
 }
 
-/* ===== Modal wiring (always shown) ===== */
+/* ===== Modal wiring (look up elements fresh each time for safety) ===== */
 const modal = {
-  el: document.getElementById('riskModal'),
-  bar: document.getElementById('riskMeterBar'),
-  scoreText: document.getElementById('riskScoreText'),
-  factors: document.getElementById('riskFactors'),
-  warn: document.getElementById('riskWarning'),
-  proceed: document.getElementById('riskProceed'),
-  cancel: document.getElementById('riskCancel'),
-  close: document.getElementById('riskClose'),
+  get el(){ return document.getElementById('riskModal'); },
+  q(sel){ return this.el?.querySelector(sel); },
   open(){ this.el?.setAttribute('aria-hidden','false'); this.el?.classList.add('active'); },
   hide(){ this.el?.classList.remove('active'); this.el?.setAttribute('aria-hidden','true'); },
+
   render(check){
-    // Meter + score
-    this.bar?.style.setProperty('--score', check.score);
-    if (this.scoreText) this.scoreText.textContent = `Risk score: ${check.score}`;
+    const bar       = this.q('#riskMeterBar');
+    const scoreTxt  = this.q('#riskScoreText');
+    const factorsEl = this.q('#riskFactors');
+    const warn      = this.q('#riskWarning');
+    const proceed   = this.q('#riskProceed');
 
-    // Factors list
+    // meter + score
+    if (bar) bar.style.setProperty('--score', check.score);
+    if (scoreTxt) scoreTxt.textContent = `Risk score: ${check.score}`;
+
+    // factors
     const listHtml = (check.findings || []).map(f => `<li>${escapeHtml(String(f))}</li>`).join('');
-    if (this.factors) this.factors.innerHTML = listHtml ? `<ul>${listHtml}</ul>` : 'No notable factors.';
+    if (factorsEl) factorsEl.innerHTML = listHtml ? `<ul>${listHtml}</ul>` : 'No notable factors.';
 
-    // Reset default controls
-    if (this.proceed){
-      this.proceed.disabled = true;
-      this.proceed.textContent = 'Complete transaction';
+    // reset controls
+    if (proceed){
+      proceed.disabled = true;
+      proceed.setAttribute('aria-disabled','true');
+      proceed.style.pointerEvents = 'none';
+      proceed.textContent = 'Complete transaction';
+      proceed.removeAttribute('data-blocked');
     }
-    if (this.warn){
-      this.warn.style.display = 'none';
-      this.warn.innerHTML = '';
+    if (warn){
+      warn.style.display = 'none';
+      warn.innerHTML = '';
     }
 
-    // === Policy: HARD BLOCK on explicit blocked OR score >= HARD_BLOCK_THRESHOLD ===
-    if (check.blocked || check.score >= HARD_BLOCK_THRESHOLD){
-      if (this.warn){
-        this.warn.style.display = 'block';
-        this.warn.innerHTML = `<strong>Blocked by policy.</strong> ${escapeHtml(BLOCK_MSG)}`;
+    const isHardBlocked = (check.blocked || check.score >= HARD_BLOCK_THRESHOLD);
+    console.log('[SafeSend modal] score:', check.score, 'blocked:', check.blocked, 'policyHardBlock:', isHardBlocked);
+
+    // HARD BLOCK path
+    if (isHardBlocked){
+      if (warn){
+        warn.style.display = 'block';
+        warn.innerHTML = `<div style="color:#fff"><strong>Blocked by policy.</strong> ${escapeHtml(BLOCK_MSG)}</div>`;
       }
-      if (this.proceed){
-        this.proceed.disabled = true;
-        this.proceed.textContent = 'Blocked';
+      if (proceed){
+        proceed.disabled = true;
+        proceed.setAttribute('aria-disabled','true');
+        proceed.style.pointerEvents = 'none';
+        proceed.textContent = 'Blocked';
+        proceed.setAttribute('data-blocked','1');
       }
-      return; // cannot proceed
+      return;
     }
 
-    // === High risk acknowledge for 70..(HARD_BLOCK_THRESHOLD-1) ===
+    // HIGH RISK (70-89): require acknowledgement
     if (check.score >= 70){
-      if (this.warn){
-        this.warn.style.display = 'block';
-        this.warn.innerHTML = `
-          This transaction has been identified as high-risk. You must acknowledge to proceed.
-          <label class="checkbox"><input id="riskAgree" type="checkbox"/> <span>I understand the risks</span></label>
+      if (warn){
+        warn.style.display = 'block';
+        warn.innerHTML = `
+          <div style="color:#fff">
+            This transaction has been identified as high-risk. You must acknowledge to proceed.
+            <label class="checkbox" style="display:block;margin-top:8px">
+              <input id="riskAgree" type="checkbox"/> <span>I understand the risks</span>
+            </label>
+          </div>
         `;
-        // bind checkbox → enable proceed
-        const agree = this.el?.querySelector('#riskAgree');
-        agree?.addEventListener('change', () => {
-          if (this.proceed) this.proceed.disabled = !agree.checked;
+        const agree = this.q('#riskAgree');
+        agree?.addEventListener('change', ()=> {
+          if (!proceed) return;
+          const ok = !!agree.checked;
+          proceed.disabled = !ok;
+          proceed.setAttribute('aria-disabled', String(!ok));
+          proceed.style.pointerEvents = ok ? 'auto' : 'none';
         });
       }
-      return; // wait for user to acknowledge
+      return;
     }
 
-    // === Low risk (<70): branding/awareness modal but can proceed immediately ===
-    if (this.proceed) this.proceed.disabled = false;
+    // LOW RISK (<70): can proceed immediately
+    if (proceed){
+      proceed.disabled = false;
+      proceed.setAttribute('aria-disabled','false');
+      proceed.style.pointerEvents = 'auto';
+    }
   }
 };
 
 function escapeHtml(s){ return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-/* Show modal and resolve true/false when user acts */
 function showRiskModal(check){
   modal.render(check);
   modal.open();
+  const proceed = modal.q('#riskProceed');
+  const cancel  = modal.q('#riskCancel');
+  const close   = modal.q('#riskClose');
+
   return new Promise((resolve)=>{
-    const cleanup = () => {
-      if (modal.proceed) modal.proceed.onclick = null;
-      if (modal.cancel)  modal.cancel.onclick  = null;
-      if (modal.close)   modal.close.onclick   = null;
+    const cleanup = ()=>{
+      if (proceed) proceed.onclick = null;
+      if (cancel)  cancel.onclick  = null;
+      if (close)   close.onclick   = null;
       modal.hide();
     };
 
-    // For hard block, proceed is disabled (no handler needed).
-    if (modal.proceed){
-      modal.proceed.onclick = () => {
-        if (modal.proceed.disabled) return;
-        cleanup(); resolve(true);  // user explicitly chose to continue
+    if (proceed){
+      proceed.onclick = ()=>{
+        // guard: if blocked or disabled, do nothing
+        if (proceed.hasAttribute('data-blocked') || proceed.disabled ||
+            proceed.getAttribute('aria-disabled') === 'true') return;
+        cleanup(); resolve(true);
       };
     }
-    if (modal.cancel) modal.cancel.onclick = () => { cleanup(); resolve(false); };
-    if (modal.close)  modal.close.onclick  = () => { cleanup(); resolve(false); };
+    if (cancel) cancel.onclick = ()=> { cleanup(); resolve(false); };
+    if (close)  close.onclick  = ()=> { cleanup(); resolve(false); };
   });
 }
 
@@ -248,7 +268,7 @@ function render(view){
       try{
         const check = await fetchSafeSend(to, 'sepolia');
 
-        // 🔴 ALWAYS show the modal (branding + awareness)
+        // ALWAYS show modal
         const proceed = await showRiskModal(check);
 
         // If user cancels OR hard-block policy, stop here with appropriate message.
@@ -260,7 +280,7 @@ function render(view){
           return;
         }
 
-        // Only reach here if user explicitly clicked "Complete transaction"
+        // Proceed only if user explicitly clicked Complete transaction
         $('#sendOut').textContent = 'SafeSend OK — preparing tx...';
         const res = await sendEth({ to, amountEth: n, chain: 'sep' });
         $('#sendOut').innerHTML = 'Broadcasted: <a target="_blank" href="https://sepolia.etherscan.io/tx/'+res.hash+'">'+res.hash+'</a>';
