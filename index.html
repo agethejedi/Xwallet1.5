@@ -1,16 +1,21 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>X-Wallet by RiskXLabs — Web v1.5</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>X-Wallet by RiskXLabs — Web v1.5.5</title>
 
-  <!-- CSP: esm modules, Alchemy (any network), and your SafeSend worker -->
+  <!-- Content Security Policy: allow esm.sh modules, your RPCs, Coingecko, and the SafeSend worker -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self';
           script-src 'self' https://esm.sh;
-          connect-src 'self' https://*.g.alchemy.com https://xwalletv1dot2.agedotcom.workers.dev;
+          connect-src 'self'
+                       https://*.g.alchemy.com
+                       https://*.infura.io
+                       https://api.coingecko.com
+                       https://xwalletv1dot2.agedotcom.workers.dev
+                       https://esm.sh;
           style-src 'self' 'unsafe-inline';
           img-src 'self' data:;
           font-src 'self' data:;
@@ -18,7 +23,18 @@
           frame-ancestors 'none';
         ">
 
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css"/>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script type="module">
+    import { ethers } from 'https://esm.sh/ethers@6.13.2';
+    window.ethers = ethers;
+  </script>
+  <script type="module">
+    import { Client } from 'https://esm.sh/@xmtp/xmtp-js@11.5.0';
+    window.XMTP = { Client };
+  </script>
 </head>
 <body>
   <div class="container">
@@ -38,9 +54,9 @@
     <!-- Hero -->
     <section class="hero card">
       <div>
-        <h1>SafeSend™ risk checks. Control Center. Multi-wallet. On-chain sends (multi-network).</h1>
+        <h1>SafeSend™ risk checks. Control Center. Multi-wallet. On-chain sends.</h1>
         <p class="lead">
-          Create or import a wallet, unlock with a password, manage multiple derived wallets,
+          Create or import a wallet, unlock with a password, manage multiple wallets,
           view balances & recent activity, and send with SafeSend pre-checks.
         </p>
         <div class="flex">
@@ -62,7 +78,7 @@
           <div class="item" data-view="wallets">Wallets</div>
           <div class="item" data-view="send">Send</div>
           <div class="item" data-view="settings">Settings</div>
-          <hr class="sep" />
+          <hr class="sep"/>
           <div class="flex">
             <div id="lockState" class="badge">Locked</div>
             <button class="btn" id="btnLock">Lock</button>
@@ -75,7 +91,7 @@
       </div>
     </section>
 
-    <footer class="small" style="margin-top:18px;color:var(--muted)">© RiskXLabs — X-Wallet Web v1.5</footer>
+    <footer class="small" style="margin-top:18px;color:var(--muted)">© RiskXLabs — X-Wallet Web v1.5.5</footer>
   </div>
 
   <!-- Lock modal -->
@@ -84,7 +100,7 @@
       <div class="label">Unlock your wallet</div>
       <div class="small">Your secret phrase is encrypted locally. Enter your password to unlock.</div>
       <div style="height:8px"></div>
-      <input id="unlockPassword" type="password" placeholder="Password" />
+      <input id="unlockPassword" type="password" placeholder="Password"/>
       <div style="height:8px"></div>
       <div class="flex">
         <button class="btn" id="doUnlock">Unlock</button>
@@ -94,7 +110,7 @@
     </div>
   </div>
 
-  <!-- Risk Review Modal (SafeSend) -->
+  <!-- SafeSend Risk Review Modal (always shown; app.js controls behavior) -->
   <div id="riskModal" class="modal" aria-hidden="true">
     <div class="modal__panel">
       <div class="modal__header">
@@ -102,7 +118,7 @@
         <button id="riskClose" class="icon-btn" aria-label="Close">✕</button>
       </div>
 
-      <!-- Meter -->
+      <!-- Risk meter -->
       <div class="risk-meter">
         <div id="riskMeter" class="risk-meter__scale">
           <div id="riskMeterBar" class="risk-meter__bar" style="--score:0"></div>
@@ -111,16 +127,11 @@
         <div id="riskScoreText" class="risk-meter__score">Risk score: 0</div>
       </div>
 
-      <!-- Factors -->
-      <div id="riskFactors" class="risk-factors small"></div>
+      <!-- Risk factors list -->
+      <div id="riskFactors" class="risk-factors small">No notable factors.</div>
 
-      <!-- High-risk acknowledgement -->
-      <div id="riskWarning" class="risk-warning" style="display:none">
-        This transaction has been identified by SafeSend as one involving substantial risk of being a scam or fraud.
-        The submitter understands that this is an attempt at intervention using the best available information.
-        The submitter assumes full financial responsibility for ignoring the stated risk factors.
-        <label class="checkbox"><input id="riskAgree" type="checkbox"> <span>I agree</span></label>
-      </div>
+      <!-- High-risk acknowledgment (70–89 only; hidden otherwise) -->
+      <div id="riskWarning" class="risk-warning" style="display:none"></div>
 
       <div class="modal__actions">
         <button id="riskCancel" class="btn ghost">Cancel</button>
@@ -129,7 +140,7 @@
     </div>
   </div>
 
-  <!-- App script (ESM) -->
-  <script type="module" crossorigin src="js/app.js"></script>
+  <!-- App script (cache-busted to v1.5.5) -->
+  <script type="module" crossorigin src="js/app.js?v=1.5.5"></script>
 </body>
 </html>
