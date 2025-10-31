@@ -1,81 +1,55 @@
-/* X-Wallet styles v1.5.9 (core + SafeSend overrides) */
+/* X-Wallet styles v1.6.1 */
 :root{
   --bg:#0c1117; --panel:#121826; --panel-2:#0f1722; --text:#e6e7ea; --muted:#9aa4b2;
   --border:#263042; --accent:#06b6d4; --accent-2:#22d3ee;
-  --danger:#ef4444; --warn:#f59e0b; --ok:#10b981;
 }
-
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
 a{color:var(--accent)}
 .small{font-size:12px;color:var(--muted)}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
 
-/* Layout */
 .container{max-width:1120px;margin:0 auto;padding:16px}
 .nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.brand{font-weight:700}
-.brand .x{color:var(--accent);margin-right:6px}
+.brand{font-weight:700}.brand .x{color:var(--accent);margin-right:6px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
 .app-grid{display:grid;grid-template-columns:260px 1fr;gap:16px}
 .sidebar .item{padding:10px;border-radius:10px;cursor:pointer;color:var(--muted)}
 .sidebar .item.active{background:#0d2433;color:var(--text);border:1px solid var(--border)}
 .sep{border:none;border-top:1px solid var(--border);margin:12px 0}
 .label{font-weight:700;margin-bottom:6px}
-
-/* Buttons */
+.footer{margin-top:18px;color:var(--muted)}
+.lead{color:var(--muted)}
+.badge{background:#0d2433;border:1px solid var(--border);padding:4px 8px;border-radius:999px;margin-right:6px}
+.flex{display:flex;gap:10px;align-items:center}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+input,textarea{width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:10px}
 .btn{background:#1b2a3a;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
 .btn.primary{background:var(--accent);color:#00131a;border:0}
 .btn.ghost{background:transparent;border:1px solid var(--border)}
 .btn:disabled,.btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
 
-/* Forms */
-input,textarea,select{width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:10px}
-textarea{resize:vertical}
+.lock{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:1000}
+.lock.active{display:flex}
+.lock .panel{width:min(480px,92vw);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
 
-/* Modal */
 .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:1000}
 .modal.active{display:flex}
 .modal__panel{width:min(720px,92vw);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
 .modal__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .icon-btn{background:transparent;border:0;color:var(--muted);cursor:pointer}
-.modal__actions{display:flex;gap:12px;justify-content:flex-end;margin-top:14px}
 
-/* Risk meter */
 .risk-meter__scale{height:12px;background:#123;border-radius:999px;position:relative;overflow:hidden}
-.risk-meter__bar{position:absolute;inset:0;background:linear-gradient(90deg,#16a34a 0% 60%, #f59e0b 60% 85%, #ef4444 85% 100%);}
-.risk-meter__bar::after{
-  content:""; position:absolute; top:0; bottom:0; left:0; width:calc(var(--score,0) * 1%); background:rgba(255,255,255,.15);
-}
+.risk-meter__bar{position:absolute;inset:0;background:linear-gradient(90deg,#16a34a 0% 60%, #f59e0b 60% 85%, #ef4444 85% 100%)}
+.risk-meter__bar::after{content:"";position:absolute;top:0;bottom:0;left:0;width:calc(var(--score,0) * 1%);background:rgba(255,255,255,.15)}
 .risk-meter__labels{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:6px 2px 4px}
 .risk-meter__score{font-weight:700;margin-bottom:6px}
 
-/* ===== SafeSend overrides (unhideable visibility + blocked states) ===== */
-#riskWarning{display:block !important}
-#riskWarning *{color:#fff !important}
-#riskProceed[disabled],
-#riskProceed[aria-disabled="true"],
-#riskProceed[data-blocked="1"]{
-  pointer-events:none !important;
-  opacity:.55 !important;
-  cursor:not-allowed !important;
-/* === SafeSend hard block visibility overrides (v1.6.0) === */
-#riskWarning {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  max-height: none !important;
-  overflow: visible !important;
-}
+/* Blocked module visuals */
+.blocked-card{background:#3b0d0d;border:1px solid #ff4d4d;color:#fff}
+.blocked-factors{margin:8px 0 0 18px}
 
-#riskWarning * {
-  color: #fff !important;
-}
-
-#riskProceed[data-blocked="1"],
-#riskProceed[aria-disabled="true"],
-#riskProceed[disabled] {
-  pointer-events: none !important;
-  opacity: 0.6 !important;
-  cursor: not-allowed !important;
-}
+/* Risk modal warning areas */
+#riskWarning{display:block !important;visibility:visible !important;opacity:1 !important;max-height:none !important;overflow:visible !important}
+.warnbox{color:#fff;background:#3f2d00;border:1px solid #f7b955;border-radius:6px;padding:10px;margin-top:10px}
+#riskProceed[disabled],#riskProceed[aria-disabled="true"],#riskProceed[data-blocked="1"]{pointer-events:none !important;opacity:.6 !important;cursor:not-allowed !important}
