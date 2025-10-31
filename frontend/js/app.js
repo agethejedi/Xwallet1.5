@@ -1,16 +1,16 @@
-// X-Wallet frontend app.js v1.5.8 — CSP-friendly, modal always, enforced hard block ≥90
+// X-Wallet frontend app.js v1.5.9 — CSP-friendly, modal always, enforced hard block ≥90,
+// global click-guard, accessibility blur fix, and unhideable warning panel.
 
-// --- ESM imports (no inline scripts to satisfy CSP) ---
 import { ethers } from 'https://esm.sh/ethers@6.13.2';
 import { Client as XMTPClient } from 'https://esm.sh/@xmtp/xmtp-js@11.5.0';
 
-// expose (if any legacy code references window.*)
+// expose for any legacy references
 window.ethers = ethers;
 window.XMTP = { Client: XMTPClient };
 
-// =======================
-// CONFIG
-// =======================
+/* =========================
+   CONFIG
+   ========================= */
 const RPCS = {
   sep: 'https://eth-sepolia.g.alchemy.com/v2/kxHg5y9yBXWAb9cOcJsf0', // replace if needed
   mainnet: 'https://mainnet.infura.io/v3/0883fc4e792c4b78aa435b2332790b73',
@@ -20,18 +20,29 @@ const RPCS = {
 // Cloudflare Worker endpoint (CORS enabled)
 const SAFE_SEND_URL = 'https://xwalletv1dot2.agedotcom.workers.dev/check';
 
-// =======================
-/* POLICY */
-// =======================
+/* =========================
+   POLICY
+   ========================= */
 const HARD_BLOCK_THRESHOLD = 90; // >= 90 => hard block
 const BLOCK_MSG =
   "Transfers to the wallet address your submitted are currently being blocked. RiskXLabs believes that transactions with the wallet address represent substantial risk or that the address has been sanctioned by regulatory bodies.";
 
-// =======================
-// RISK HELPERS
-// =======================
+/* =========================
+   GLOBAL GUARD — never allow completion when blocked/disabled
+   ========================= */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#riskProceed');
+  if (!btn) return;
+  const blocked = btn.hasAttribute('data-blocked')
+               || btn.disabled
+               || btn.getAttribute('aria-disabled') === 'true';
+  if (blocked) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+/* =========================
+   RISK HELPERS
+   ========================= */
 function normalizeSafeSendResponse(j) {
-  // New worker format
   if (typeof j?.risk_score === 'number' || j?.reasons || j?.risk_factors) {
     const score = typeof j.risk_score === 'number' ? j.risk_score : 10;
     const findings = Array.isArray(j.risk_factors) && j.risk_factors.length
@@ -46,7 +57,6 @@ function normalizeSafeSendResponse(j) {
     const blocked = !!j.block || (j.reasons && j.reasons.includes('OFAC')) || score >= 100;
     return { score, findings, blocked, raw: j };
   }
-  // Legacy format
   if (typeof j?.score === 'number') {
     const score = j.score;
     const findings = Array.isArray(j.findings) ? j.findings : [];
@@ -77,14 +87,21 @@ async function fetchSafeSend(to, chain = 'sepolia') {
   return norm;
 }
 
-// =======================
-// MODAL (ALWAYS SHOWN)
-// =======================
+/* =========================
+   MODAL (ALWAYS SHOWN)
+   ========================= */
 const modal = {
   get el() { return document.getElementById('riskModal'); },
   q(sel) { return this.el?.querySelector(sel); },
   open() { this.el?.setAttribute('aria-hidden', 'false'); this.el?.classList.add('active'); },
-  hide() { this.el?.classList.remove('active'); this.el?.setAttribute('aria-hidden', 'true'); },
+  hide() {
+    this.el?.classList.remove('active');
+    this.el?.setAttribute('aria-hidden', 'true');
+    // Accessibility: remove focus from any element inside the modal
+    if (document.activeElement && this.el?.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+  },
 
   render(check) {
     const bar       = this.q('#riskMeterBar');
@@ -99,7 +116,9 @@ const modal = {
 
     // Findings
     const listHtml = (check.findings || []).map(f => `<li>${escapeHtml(String(f))}</li>`).join('');
-    if (factorsEl) factorsEl.innerHTML = listHtml ? `<ul>${listHtml}</ul>` : 'No notable factors.';
+    if (factorsEl) {
+      factorsEl.innerHTML = listHtml ? `<ul>${listHtml}</ul>` : 'No notable factors.';
+    }
 
     // Reset controls
     if (proceed) {
@@ -108,22 +127,23 @@ const modal = {
       proceed.style.pointerEvents = 'none';
       proceed.textContent = 'Complete transaction';
       proceed.removeAttribute('data-blocked');
-      proceed.style.opacity = ''; // reset
+      proceed.style.opacity = '';
     }
     if (warn) {
-      warn.style.display = 'none';
+      warn.style.display = 'block'; // force visible; CSS also enforces this
       warn.innerHTML = '';
     }
 
-    // Determine policy hard block
     const isHardBlocked = (check.blocked || check.score >= HARD_BLOCK_THRESHOLD);
     console.log('[SafeSend modal]', { score: check.score, blocked: check.blocked, policyHardBlock: isHardBlocked });
 
-    // HARD BLOCK branch
+    // HARD BLOCK
     if (isHardBlocked) {
       console.log('[SafeSend] Hard block triggered.');
+      if (factorsEl && (!check.findings || !check.findings.length)) {
+        factorsEl.innerHTML = '<ul><li>Policy / sanctions / internal list match</li></ul>';
+      }
       if (warn) {
-        warn.style.display = 'block';
         warn.innerHTML = `
           <div style="
             color:#fff;
@@ -133,26 +153,24 @@ const modal = {
             padding:10px;
             margin-top:10px;
           ">
-            <strong>🚫 Blocked by Policy</strong><br><br>
-            ${escapeHtml(BLOCK_MSG)}
+            <strong>🚫 Blocked by Policy</strong><br><br>${escapeHtml(BLOCK_MSG)}
           </div>`;
       }
       if (proceed) {
         proceed.disabled = true;
         proceed.setAttribute('aria-disabled', 'true');
+        proceed.setAttribute('data-blocked', '1');
         proceed.style.pointerEvents = 'none';
         proceed.textContent = 'Blocked';
-        proceed.style.opacity = '0.6';
-        proceed.setAttribute('data-blocked', '1');
+        proceed.style.opacity = '.6';
       }
       this.open(); // ensure visible state after injection
-      return; // cannot proceed
+      return;
     }
 
     // HIGH RISK (70–89): require acknowledgement
     if (check.score >= 70) {
       if (warn) {
-        warn.style.display = 'block';
         warn.innerHTML = `
           <div style="
             color:#fff;
@@ -176,13 +194,13 @@ const modal = {
           proceed.disabled = !ok;
           proceed.setAttribute('aria-disabled', String(!ok));
           proceed.style.pointerEvents = ok ? 'auto' : 'none';
-          proceed.style.opacity = ok ? '' : '0.6';
+          proceed.style.opacity = ok ? '' : '.6';
         });
       }
       return;
     }
 
-    // LOW RISK (<70): modal shows for awareness; can proceed immediately
+    // LOW RISK (<70): can proceed immediately
     if (proceed) {
       proceed.disabled = false;
       proceed.setAttribute('aria-disabled', 'false');
@@ -212,13 +230,12 @@ function showRiskModal(check) {
       modal.hide();
     };
 
-    // Guard: if hard-blocked, proceed remains disabled and unclickable
+    // If blocked, the global click guard + disabled state will prevent progress
     if (proceed) {
       proceed.onclick = () => {
         if (proceed.hasAttribute('data-blocked') || proceed.disabled ||
             proceed.getAttribute('aria-disabled') === 'true') return;
-        cleanup();
-        resolve(true); // user explicitly continues
+        cleanup(); resolve(true);
       };
     }
     if (cancel) cancel.onclick = () => { cleanup(); resolve(false); };
@@ -226,24 +243,21 @@ function showRiskModal(check) {
   });
 }
 
-// =======================
-// DOM HELPERS
-// =======================
+/* =========================
+   DOM HELPERS
+   ========================= */
 const $  = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 
-// =======================
-// AES-GCM + PBKDF2 VAULT
-// =======================
+/* =========================
+   AES-GCM + PBKDF2 VAULT
+   ========================= */
 async function aesEncrypt(password, plaintext) {
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const km = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
-  );
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext)));
   return { ct: Array.from(ct), iv: Array.from(iv), salt: Array.from(salt) };
 }
@@ -251,17 +265,14 @@ async function aesDecrypt(password, payload) {
   const dec = new TextDecoder();
   const { ct, iv, salt } = payload;
   const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: new Uint8Array(salt), iterations: 100000, hash: 'SHA-256' },
-    km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
-  );
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new Uint8Array(salt), iterations: 100000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(iv) }, key, new Uint8Array(ct));
   return dec.decode(pt);
 }
 
-// =======================
-// STATE / LOCK
-// =======================
+/* =========================
+   STATE / LOCK
+   ========================= */
 const state = { unlocked: false, wallet: null, xmtp: null, provider: null, signer: null, inactivityTimer: null };
 const STORAGE_KEY = 'xwallet_vault_v1.2';
 function getVault() { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
@@ -269,9 +280,9 @@ function setVault(v) { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); }
 function lock() { state.unlocked = false; state.wallet = null; state.xmtp = null; state.provider = null; state.signer = null; $('#lockState').textContent = 'Locked'; }
 function scheduleAutoLock() { clearTimeout(state.inactivityTimer); state.inactivityTimer = setTimeout(() => { lock(); showLock(); }, 10 * 60 * 1000); }
 
-// =======================
-// VIEWS
-// =======================
+/* =========================
+   VIEWS
+   ========================= */
 const VIEWS = {
   dashboard() {
     return `
@@ -389,9 +400,9 @@ function render(view) {
   }
 }
 
-// =======================
-// LOCK MODAL / NAV
-// =======================
+/* =========================
+   LOCK MODAL / NAV
+   ========================= */
 function showLock() { $('#lockModal').classList.add('active'); $('#unlockPassword').value = ''; $('#unlockMsg').textContent = ''; }
 function hideLock() { $('#lockModal').classList.remove('active'); }
 $('#btnLock')?.addEventListener('click', () => { lock(); alert('Locked.'); });
@@ -418,9 +429,9 @@ function selectItem(view) { $$('.sidebar .item').forEach(x => x.classList.toggle
 $$('.sidebar .item').forEach(el => el.addEventListener('click', () => selectItem(el.dataset.view)));
 selectItem('dashboard');
 
-// =======================
-// PROVIDER + SEND
-// =======================
+/* =========================
+   PROVIDER + SEND
+   ========================= */
 async function getProvider(chain = 'sep') {
   if (!RPCS[chain]) throw new Error('RPC not configured for ' + chain);
   return new ethers.JsonRpcProvider(RPCS[chain]);
