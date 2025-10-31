@@ -59,4 +59,23 @@ textarea{resize:vertical}
   pointer-events:none !important;
   opacity:.55 !important;
   cursor:not-allowed !important;
+/* === SafeSend hard block visibility overrides (v1.6.0) === */
+#riskWarning {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+#riskWarning * {
+  color: #fff !important;
+}
+
+#riskProceed[data-blocked="1"],
+#riskProceed[aria-disabled="true"],
+#riskProceed[disabled] {
+  pointer-events: none !important;
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
 }
